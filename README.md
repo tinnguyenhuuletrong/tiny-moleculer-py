@@ -40,6 +40,12 @@ This project uses [uv](https://github.com/astral-sh/uv) for project and dependen
     uv sync
     ```
 
+### Test
+
+```bash
+uv run -m pytest
+```
+
 ### Example run
 
 ```bash

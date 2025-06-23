@@ -4,28 +4,22 @@ from typing import Callable, Dict, Any, Optional, Awaitable, List
 import redis.asyncio as aioredis
 from redis.asyncio.client import PubSub
 
-MOLECULER_CHANNELS = {
-    'INFO': 'MOL.INFO',
-    'DISCOVER': 'MOL.DISCOVER',
-    'HEARTBEAT': 'MOL.HEARTBEAT',
-    'REQ': 'MOL.REQ',
-    'RES': 'MOL.RES.{nodeID}',
-    'EVENT': 'MOL.EVENT',
-    'EVENT_NODE': 'MOL.EVENT.{nodeID}',
-}
 
 class RedisTransport:
     """
     Asyncio-based Redis Transport Layer compatible with Moleculer.js Redis transporter.
     Handles connection, (re)subscription, publishing, and packet dispatching.
     """
-    def __init__(self, redis_url: str = 'redis://localhost:6379/0', node_id: Optional[str] = None):
+
+    def __init__(
+        self, redis_url: str = "redis://localhost:6379/0", node_id: Optional[str] = None
+    ):
         self.redis_url = redis_url
         self.node_id = node_id
         self.pub_client: Optional[aioredis.Redis] = None
         self.sub_client: Optional[aioredis.Redis] = None
         self.pubsub: Optional[PubSub] = None
-        self.handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[None]]] = {}
+        self.handlers: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[None]]] = {}
         self.listen_task: Optional[asyncio.Task] = None
         self._subscribed_channels: set[str] = set()
         self._reconnect_delay = 2
@@ -88,10 +82,12 @@ class RedisTransport:
             raise RuntimeError("Not connected to Redis.")
         data = self.encode_packet(packet)
         await self.pub_client.publish(channel, data)
-        print(f"Published to {channel}: {data}")
+        return
 
-    def register_handler(self, channel: str, handler: Callable[[Dict[str, Any]], Awaitable[None]]):
-        """Register an async handler for a channel."""
+    def register_handler(
+        self, channel: str, handler: Callable[[str, Dict[str, Any]], Awaitable[None]]
+    ):
+        """Register an async handler for a channel. Handler must take (messageType, packet)."""
         if not asyncio.iscoroutinefunction(handler):
             raise TypeError("Handler must be an async function (coroutine)")
         self.handlers[channel] = handler
@@ -111,19 +107,21 @@ class RedisTransport:
                 if not self.pubsub:
                     await asyncio.sleep(self._reconnect_delay)
                     continue
-                
+
                 # Using get_message in a loop is more robust against connection drops
                 # than `async for`, as it prevents a potential busy-loop if the
                 # iterator terminates unexpectedly. A timeout allows the loop to
                 # periodically check the `self._running` flag.
-                message = await self.pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                
+                message = await self.pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+
                 if message is None:
                     continue
 
-                channel = message['channel'].decode('utf-8')
+                channel = message["channel"].decode("utf-8")
                 try:
-                    packet = self.decode_packet(message['data'])
+                    packet = self.decode_packet(message["data"])
                 except json.JSONDecodeError as e:
                     print(f"Failed to decode message on channel '{channel}': {e}")
                     if self.on_error:
@@ -131,11 +129,13 @@ class RedisTransport:
                     continue
                 handler = self.handlers.get(channel)
                 if handler:
-                    await handler(packet)
+                    await handler(channel, packet)
                 else:
                     await self.dispatch_packet(channel, packet)
             except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-                print(f"Redis connection error: {e}. Reconnecting in {self._reconnect_delay}s...")
+                print(
+                    f"Redis connection error: {e}. Reconnecting in {self._reconnect_delay}s..."
+                )
                 if self.on_error:
                     await self.on_error(e)
 
@@ -166,4 +166,4 @@ class RedisTransport:
 
     async def close(self):
         """Gracefully close the transport."""
-        await self.disconnect() 
+        await self.disconnect()
