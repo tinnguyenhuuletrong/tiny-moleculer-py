@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from enum import Enum
 
 class DataType(Enum):
@@ -74,14 +74,14 @@ class PacketInfo:
 
     ver: str
     sender: str
-    services: Optional[str] = None
-    config: Optional[str] = None
+    services: List[Dict[str, Any]] = field(default_factory=list)
+    config: Dict[str, Any] = field(default_factory=dict)
     ipList: List[str] = field(default_factory=list)
     hostname: Optional[str] = None
-    client: Optional[Client] = None
+    client: Optional['PacketInfo.Client'] = None
     seq: Optional[int] = None
     instanceID: Optional[str] = None
-    metadata: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class PacketDisconnect:

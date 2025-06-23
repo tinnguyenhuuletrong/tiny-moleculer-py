@@ -1,9 +1,13 @@
 import asyncio
-from typing import Optional, Dict, Any, Callable
+import json
+import socket
+import uuid
+from typing import List, Optional, Dict, Any, Callable
 from .redis_transport import RedisTransport
 from .packets import (
     PacketEvent, PacketRequest, PacketResponse, PacketDiscover, PacketInfo, PacketDisconnect, PacketHeartbeat, PacketPing, PacketPong, PacketGossipHello, PacketGossipRequest, PacketGossipResponse, DataType
 )
+from dataclasses import asdict
 
 class Broker:
     """
@@ -49,6 +53,8 @@ class Broker:
             f'MOL.INFO.{self.node_id}',
             'MOL.DISCOVER',
             'MOL.HEARTBEAT',
+            'MOL.PING',
+            'MOL.PONG'
         ]
         await self.transport.subscribe(channels)
         # Register handlers for incoming packets (placeholders)
@@ -62,12 +68,44 @@ class Broker:
 
     async def send_info(self):
         """Send node INFO packet to the network."""
+        serializable_services = []
+        for name, service_def in self.services.items():
+            actions = {
+                action_name: {"name": action_name}
+                for action_name in service_def.get("actions", {})
+            }
+            events = {
+                event_name: {"name": event_name}
+                for event_name in service_def.get("events", {})
+            }
+            serializable_services.append({
+                "name": name,
+                "version": service_def.get("version"),
+                "settings": service_def.get("settings", {}),
+                "metadata": service_def.get("metadata", {}),
+                "actions": actions,
+                "events": events,
+                "nodeID": self.node_id
+            })
+
+
+        ip_list = self.get_local_ip_addresses()
+        instance_id = str(uuid.uuid4())
+
         info = PacketInfo(
             ver="4",
             sender=self.node_id,
-            # Fill other fields as needed
+            services=serializable_services,
+            hostname=socket.gethostname(),
+            ipList=ip_list,
+            instanceID=instance_id,
+            client=PacketInfo.Client(
+                type="python",
+                version="0.14.33",
+                langVersion=""
+            )
         )
-        await self.transport.publish('MOL.INFO', info.__dict__)
+        await self.transport.publish('MOL.INFO', asdict(info))
 
     async def send_discover(self):
         """Send DISCOVER packet to the network."""
@@ -87,10 +125,10 @@ class Broker:
             await asyncio.sleep(5)
 
     # --- Service registration and action/event call/emit (placeholders) ---
-    def register_service(self, name: str, service_def: Dict[str, Any]):
+    async def register_service(self, name: str, service_def: Dict[str, Any]):
         """Register a service (actions/events)."""
         self.services[name] = service_def
-        # TODO: Announce service in INFO packet
+        await self.send_info()
 
     async def call(self, action: str, params: Any, meta: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None):
         """Call an action on the network (send REQ packet, await RES)."""
@@ -101,3 +139,28 @@ class Broker:
         """Emit an event to the network (send EVENT packet)."""
         # TODO: Implement event emit logic
         pass 
+
+    
+    # Collect all local IP addresses
+    def get_local_ip_addresses(self) -> List[str]:
+        ip_list = set()
+        try:
+            hostname = socket.gethostname()
+            # Try to get all addresses associated with the hostname
+            for addr in socket.getaddrinfo(hostname, None):
+                ip = addr[4][0]
+                ip_str = str(ip)
+                # Filter out localhost and duplicates
+                if not ip_str.startswith("127.") and not ip_str.startswith("::1"):
+                    ip_list.add(ip_str)
+        except Exception:
+            pass
+        # Always add at least one IP (fallback)
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_list.add(s.getsockname()[0])
+            s.close()
+        except Exception:
+            pass
+        return list(ip_list) if ip_list else ["127.0.0.1"]
