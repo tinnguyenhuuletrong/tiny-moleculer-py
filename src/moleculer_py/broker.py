@@ -22,13 +22,9 @@ class Broker:
     async def start(self):
         """Start the broker: connect transport, subscribe, announce presence, start heartbeat."""
         await self.transport.connect()
-        print("aaa 1")
         await self.subscribe_channels()
-        print("aaa 2")
         await self.send_info()
-        print("aaa 3")
         await self.send_discover()
-        print("aaa 4")
         self._running = True
         self._heartbeat_task = asyncio.create_task(self.heartbeat_loop())
         print(f"Broker {self.node_id} started.")
