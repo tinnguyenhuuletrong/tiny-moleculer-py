@@ -1,0 +1,78 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Technical Design Document: Python Moleculer Service with Redis Transport
+
+## 1. Introduction
+
+This document outlines the technical design for implementing a Python-based service that is compatible with the Moleculer.js microservices framework. The primary goal is to enable seamless communication between Python services and existing Moleculer.js services using Redis as the sole transport layer. This design will focus on core functionalities such as action invocation, event emission/listening, and node discovery.
+
+## 2. Goals
+
+* **Python 3.7+ Compatibility:** The solution must be fully compatible with Python versions 3.7 and above, leveraging `asyncio` for asynchronous operations.
+* **Project Initialization with `uv`:** The project structure and dependency management will utilize the `uv` tool.
+* **Redis Transport Only:** All inter-service communication will occur exclusively via Redis Pub/Sub, adhering to Moleculer.js's Redis transporter protocol.
+* **Moleculer.js Service Compatibility:** Python services must be able to send and receive actions, and emit and listen to events, in a manner compatible with Moleculer.js services.
+* **Node Discovery & Management:** Implement basic node information exchange and heartbeat mechanisms required for Moleculer.js network awareness.
+
+## 3. Non-Goals
+
+* **Other Transporters:** Support for NATS, MQTT, AMQP, etc., is explicitly out of scope.
+* **Load Balancing/Circuit Breaker:** Advanced Moleculer features like built-in load balancing, circuit breaking, retries, and fallback mechanisms will not be implemented in this initial version. These are typically handled by the broker.
+* **Service Mixins/Middlewares:** Moleculer.js-specific concepts like mixins and middlewares will not be directly supported, though the design should not preclude their future integration if needed.
+* **Advanced Caching:** No built-in caching mechanism beyond what Redis might inherently provide.
+* **API Gateway Integration:** Direct integration with an API Gateway is not part of this scope, though a Python service could act as one.
+* **Metric/Tracing/Logging Adapters:** While logging should be present, dedicated adapters for metrics or distributed tracing systems are not included.
+
+## 4. Architecture Overview
+
+The Python Moleculer service will be a standalone `asyncio` application that connects to a Redis server. It will act as a "node" within the Moleculer network, capable of:
+
+* **Publishing** messages to specific Redis channels (e.g., `MOL.REQ`, `MOL.EVENT`).
+* **Subscribing** to specific Redis channels (e.g., `MOL.REQ`, `MOL.RES.<nodeID>`, `MOL.EVENT`, `MOL.INFO.<nodeID>`).
+* **Parsing** incoming JSON packets into internal Python objects.
+* **Serializing** outgoing Python objects into JSON packets.
+* **Managing** its own service definitions (actions, events).
+* **Responding** to action calls and event emissions from other Moleculer nodes.
+
+```
++----------------+                   +------------------+                   +------------------+
+| Python Service | <---- Redis ----> |   Redis Server   | <---- Redis ----> | Moleculer.js     |
+| (Node A)       |     Pub/Sub     |                  |     Pub/Sub     | Service (Node B) |
++----------------+                   +------------------+                   +------------------+
+        |                                     ^                                     ^
+        |                                     |                                     |
+        v                                     |                                     |
++----------------+                   +------------------+                   +------------------+
+|    Actions     |                   | Packet Handling  |                   |    Actions     |
+|    Events      |                   | (Serialization/  |                   |    Events      |
+| Node Lifecycle |                   | Deserialization) |                   | Node Lifecycle |
++----------------+                   +------------------+                   +------------------+
+
+```
+
+## 5. Core components 
+
+### 5.1 Redis Transport Layer
+
+> Reference: [https://github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js](https://github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js)
+
+This component is responsible for connecting to Redis, managing subscriptions, and handling the low-level sending and receiving of Moleculer packets.
+
+**Key Considerations:**
+
+* **Redis Client:** Use an `asyncio`-compatible Redis client (e.g., `aioredis` or the async features of the `redis` library).
+* **Channels:** Adhere strictly to Moleculer.js Redis channel conventions:
+    * `MOL.INFO`: For global node info (discovery, services).
+    * `MOL.DISCOVER`: For broadcasting discovery requests.
+    * `MOL.HEARTBEAT`: For periodic node heartbeats.
+    * `MOL.REQ`: For action requests to all nodes.
+    * `MOL.RES.<nodeID>`: For action responses, targeted to a specific node.
+    * `MOL.EVENT`: For global event emissions.
+    * `MOL.EVENT.<nodeID>`: For targeted event emissions (if supported by Moleculer.js via Redis).
+* **Serialization/Deserialization:** All data transported via Redis must be JSON-encoded strings.
+    * Python objects -> `json.dumps()` -> Redis.
+    * Redis -> `json.loads()` -> Python dictionary.
+* **Packet Handling:** A central dispatch mechanism will listen to subscribed Redis channels, parse incoming packets, and route them to the appropriate handlers (e.g., action invoker, event listener, node manager).
