@@ -2,6 +2,7 @@ import asyncio
 import socket
 import logging
 from dataclasses import asdict
+from time import time
 from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -23,7 +24,6 @@ from .packets import (
     PacketGossipHello,
     PacketGossipRequest,
     PacketGossipResponse,
-    DataType,
     build_subscribe_channels,
     parse_packet_by_type,
 )
@@ -47,15 +47,15 @@ class Transit:
     async def connect(self):
         await self.transport.connect()
         await self.subscribe_channels()
-        await self.send_discover()
+        await self._send_discover()
         self._running = True
-        self._heartbeat_task = asyncio.create_task(self.heartbeat_loop())
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def disconnect(self):
         self._running = False
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
-        await self.send_disconnect()
+        await self._send_disconnect()
         await self.transport.close()
 
     async def subscribe_channels(self):
@@ -74,20 +74,19 @@ class Transit:
                 # Discover -> reply broker info
                 case PacketDiscover() as discover:
                     if discover.sender != self.broker.node_id:
-                        await self.send_discover(discover.sender)
-                        await self.send_info(discover.sender)
+                        await self._send_discover(discover.sender)
+                        await self._send_info(discover.sender)
                     pass
 
                 case PacketPing() as ping:
-                    # TODO: Send Pong
+                    await self._send_pong(ping)
                     pass
 
                 case PacketInfo() as info:
-                    self.broker._update_registry(info)
+                    self.broker._handle_packet_info(info)
                     pass
 
                 case PacketRequest() as req:
-
                     # Dummy Test response
                     logger.info(req)
                     message_type = f"MOL.RES.{req.sender}"
@@ -103,6 +102,11 @@ class Transit:
                     pass
 
                 case PacketHeartbeat() as heart_beat:
+                    self.broker._handle_heart_beat(heart_beat)
+                    pass
+
+                case PacketDisconnect() as dis:
+                    self.broker._handle_disconnect(dis)
                     pass
 
                 # Add more cases for other packet types as needed
@@ -116,10 +120,8 @@ class Transit:
         logger.debug(f"Send packet ({type(packet).__name__})")
         return await self.transport.publish(message_type, asdict(packet))
 
-    async def send_info(self, target_node_id: str | None = None):
-
-        ip_list = self.get_local_ip_addresses()
-
+    async def _send_info(self, target_node_id: str | None = None):
+        ip_list = self._get_local_ip_addresses()
         info = PacketInfo(
             ver="4",
             sender=self.broker.node_id,
@@ -136,25 +138,39 @@ class Transit:
             message_type = f"MOL.INFO.{target_node_id}"
         await self._send_packet(message_type, info)
 
-    async def send_discover(self, target_node_id: str | None = None):
+    async def _send_discover(self, target_node_id: str | None = None):
         discover = PacketDiscover(ver="4", sender=self.broker.node_id)
         message_type = "MOL.DISCOVER"
         if target_node_id != None:
             message_type = f"MOL.DISCOVER.{target_node_id}"
         await self._send_packet(message_type, discover)
 
-    async def send_disconnect(self):
+    async def _send_pong(self, ping_packet: PacketPing):
+        pong = PacketPong(
+            ver="4",
+            sender=self.broker.node_id,
+            time=ping_packet.time,
+            id=ping_packet.id,
+            arrived=int(time() * 1000),
+        )
+        message_type = "MOL.PONG"
+        target_node_id = ping_packet.sender
+        if target_node_id != None:
+            message_type = f"MOL.PONG.{target_node_id}"
+        await self._send_packet(message_type, pong)
+
+    async def _send_disconnect(self):
         disconnect = PacketDisconnect(ver="4", sender=self.broker.node_id)
         await self._send_packet("MOL.DISCONNECT", disconnect)
 
-    async def heartbeat_loop(self):
+    async def _heartbeat_loop(self):
         while self._running:
             heartbeat = PacketHeartbeat(ver="4", sender=self.broker.node_id, cpu=None)
             await self._send_packet("MOL.HEARTBEAT", heartbeat)
             await asyncio.sleep(10)
 
     # Collect all local IP addresses
-    def get_local_ip_addresses(self) -> List[str]:
+    def _get_local_ip_addresses(self) -> List[str]:
         ip_list = set()
         try:
             hostname = socket.gethostname()

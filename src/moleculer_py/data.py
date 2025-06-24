@@ -1,6 +1,6 @@
 import dataclasses
 from dataclasses_json import DataClassJsonMixin
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 
 @dataclasses.dataclass
@@ -57,7 +57,21 @@ class NodeInfo(DataClassJsonMixin):
     metadata: Dict[str, Any]  # Empty dict in example
     services: List[ServiceInfo]
 
+    lastPing: int
+    isOnline: bool = True
+    isLocal: bool = False  # Indicates if this node is the current node
+
 
 @dataclasses.dataclass
 class Registry(DataClassJsonMixin):
     nodes: Dict[str, NodeInfo]
+
+    def find_remote_action(self, action_name: str) -> Optional[Tuple[str, ActionInfo]]:
+        for node_id, node in self.nodes.items():
+            if not node.isOnline:
+                continue
+            for service in node.services:
+                for action in service.actions.values():
+                    if action.name == action_name:
+                        return node_id, action
+        return None

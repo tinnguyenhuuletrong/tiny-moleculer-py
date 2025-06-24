@@ -1,13 +1,16 @@
 import asyncio
-from dataclasses import asdict
+import logging
 import uuid
+
 from typing import Optional, Dict, Any, List
 
-from .packets import PacketInfo
-
-from .type import NodeInfo, Registry, ServiceInfo, ActionInfo, ClientInfo
+from .utils import now
+from .packets import PacketDisconnect, PacketHeartbeat, PacketInfo
+from .data import NodeInfo, Registry, ServiceInfo, ActionInfo, ClientInfo
 from .redis_transport import RedisTransport
 from .transit import Transit
+
+logger = logging.getLogger("Broker")
 
 
 class Broker:
@@ -22,33 +25,34 @@ class Broker:
         node_id: str,
         instance_id: str = str(uuid.uuid4()),
         redis_url: str = "redis://localhost:6379/0",
+        cfg_node_ping_timeout_ms: int = 20000,
     ):
         self.node_id = node_id
         self.instance_id = instance_id
         self.transport = RedisTransport(redis_url=redis_url, node_id=node_id)
         self.transit = Transit(self, self.transport)
+        self.cfg_node_ping_timeout_ms = cfg_node_ping_timeout_ms
         self.services = {}  # service_name -> service definition (placeholder)
-        self._event_loop = asyncio.get_event_loop()
         self.info_seq = 1
         self.cached_serializable_services = []
-        self.registry: Registry = Registry({})
+        self._registry: Registry = Registry({})
 
     async def start(self):
         """Start the broker: connect transit (which handles transport, subscribe, announce presence, heartbeat)."""
         await self.transit.connect()
-        print(f"Broker {self.node_id} started.")
+        logger.info(f"Broker {self.node_id} started.")
 
     async def stop(self):
         """Stop the broker: send disconnect, stop heartbeat, disconnect transport."""
         await self.transit.disconnect()
-        print(f"Broker {self.node_id} stopped.")
+        logger.info(f"Broker {self.node_id} stopped.")
 
     async def register_service(self, name: str, service_def: Dict[str, Any]):
         """Register a service (actions/events)."""
         self.services[name] = service_def
         self.info_seq += 1
         self._build_serialize_service()
-        await self.transit.send_info()
+        await self.transit._send_info()
 
     async def call(
         self,
@@ -72,7 +76,11 @@ class Broker:
         # TODO: Implement event emit logic
         pass
 
-    def _update_registry(self, info: PacketInfo):
+    def get_registry(self):
+        self._refresh_node_online_status()
+        return self._registry
+
+    def _handle_packet_info(self, info: PacketInfo):
         # Convert PacketInfo.services (list of dicts) to List[ServiceInfo]
         services = []
         for svc in info.services:
@@ -123,9 +131,51 @@ class Broker:
             seq=info.seq or 0,
             metadata=info.metadata,
             services=services,
+            lastPing=now(),
+            isOnline=True,
+            isLocal=info.sender == self.node_id,
         )
 
-        self.registry.nodes[info.sender] = node_info
+        if info.sender not in self._registry.nodes:
+            logger.info(f"Node '{info.sender}' connected.")
+            pass
+        self._registry.nodes[info.sender] = node_info
+
+    def _handle_heart_beat(self, packet: PacketHeartbeat):
+        now_ms = now()
+        sender = packet.sender
+        node = self._registry.nodes.get(sender)
+        if node:
+            node.lastPing = now_ms
+            if not node.isOnline:
+                logger.info(f"Node '{sender}' is back online.")
+            node.isOnline = True
+
+    def _handle_disconnect(self, packet: PacketDisconnect):
+        now_ms = now()
+        sender = packet.sender
+        node = self._registry.nodes.get(sender)
+        if node:
+            node.lastPing = now_ms
+            if not node.isOnline:
+                logger.info(f"Node '{sender}' disconnected.")
+            node.isOnline = False
+
+    def _refresh_node_online_status(self):
+        now_ms = now()
+        # Check all nodes for offline status
+        for node_id, node in self._registry.nodes.items():
+            # Ignore local node
+            if node_id == self.node_id:
+                continue
+
+            if node.isOnline and (
+                now_ms - node.lastPing > self.cfg_node_ping_timeout_ms
+            ):
+                node.isOnline = False
+                logger.info(
+                    f"Node '{node_id}' marked as offline (lastPing {node.lastPing}, now {now_ms})."
+                )
 
     def _build_serialize_service(self):
         serializable_services = []

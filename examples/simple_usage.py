@@ -3,7 +3,7 @@ import asyncio
 from src.moleculer_py.broker import Broker
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 async def read_input_async(broker: Broker):
@@ -18,7 +18,7 @@ async def read_input_async(broker: Broker):
             match cmd:
                 case "nodes":
                     await aioconsole.aprint(
-                        broker.registry.to_json(indent=2, separators=None)
+                        broker.get_registry().to_json(indent=2, separators=None)
                     )
                 case _:
                     continue
