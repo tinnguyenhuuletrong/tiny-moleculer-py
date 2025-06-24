@@ -124,6 +124,7 @@ class Broker:
             metadata=info.metadata,
             services=services,
         )
+
         self.registry.nodes[info.sender] = node_info
 
     def _build_serialize_service(self):

@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
-from enum import Enum
+from enum import IntEnum
 
 
-class DataType(Enum):
+class DataType(IntEnum):
     UNDEFINED = 0
     NULL = 1
     JSON = 2
@@ -56,7 +56,7 @@ class PacketResponse:
     sender: str
     id: str
     success: bool
-    data: Optional[bytes] = None
+    data: Optional[Any] = None
     dataType: DataType = DataType.UNDEFINED
     error: Optional[str] = None
     meta: Optional[str] = None

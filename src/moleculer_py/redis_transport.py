@@ -66,7 +66,6 @@ class RedisTransport:
             raise RuntimeError("Not connected to Redis.")
         await self.pubsub.subscribe(*channels)
         self._subscribed_channels.update(channels)
-        print(f"Subscribed to channels: {channels}")
 
     async def unsubscribe(self, channels: List[str]):
         """Unsubscribe from a list of channels."""
@@ -106,6 +105,10 @@ class RedisTransport:
             try:
                 if not self.pubsub:
                     await asyncio.sleep(self._reconnect_delay)
+                    continue
+
+                if len(self._subscribed_channels) == 0:
+                    await asyncio.sleep(1)
                     continue
 
                 # Using get_message in a loop is more robust against connection drops

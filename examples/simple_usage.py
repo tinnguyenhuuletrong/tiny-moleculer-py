@@ -3,7 +3,7 @@ import asyncio
 from src.moleculer_py.broker import Broker
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 async def read_input_async(broker: Broker):

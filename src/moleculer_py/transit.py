@@ -86,6 +86,22 @@ class Transit:
                     self.broker._update_registry(info)
                     pass
 
+                case PacketRequest() as req:
+
+                    # Dummy Test response
+                    logger.info(req)
+                    message_type = f"MOL.RES.{req.sender}"
+                    answer = PacketResponse(
+                        ver="4",
+                        sender=self.broker.node_id,
+                        id=req.id,
+                        success=True,
+                        data={"m": "dummy"},
+                    )
+                    await self._send_packet(message_type, answer)
+
+                    pass
+
                 case PacketHeartbeat() as heart_beat:
                     pass
 
@@ -96,7 +112,7 @@ class Transit:
         except Exception as e:
             logger.error(f"Failed to parse packet: {e}\nRaw: {packet}")
 
-    async def send_packet(self, message_type: str, packet: TypeAllPacket) -> None:
+    async def _send_packet(self, message_type: str, packet: TypeAllPacket) -> None:
         logger.debug(f"Send packet ({type(packet).__name__})")
         return await self.transport.publish(message_type, asdict(packet))
 
@@ -118,23 +134,23 @@ class Transit:
         message_type = "MOL.INFO"
         if target_node_id != None:
             message_type = f"MOL.INFO.{target_node_id}"
-        await self.send_packet(message_type, info)
+        await self._send_packet(message_type, info)
 
     async def send_discover(self, target_node_id: str | None = None):
         discover = PacketDiscover(ver="4", sender=self.broker.node_id)
         message_type = "MOL.DISCOVER"
         if target_node_id != None:
             message_type = f"MOL.DISCOVER.{target_node_id}"
-        await self.send_packet(message_type, discover)
+        await self._send_packet(message_type, discover)
 
     async def send_disconnect(self):
         disconnect = PacketDisconnect(ver="4", sender=self.broker.node_id)
-        await self.send_packet("MOL.DISCONNECT", disconnect)
+        await self._send_packet("MOL.DISCONNECT", disconnect)
 
     async def heartbeat_loop(self):
         while self._running:
             heartbeat = PacketHeartbeat(ver="4", sender=self.broker.node_id, cpu=None)
-            await self.send_packet("MOL.HEARTBEAT", heartbeat)
+            await self._send_packet("MOL.HEARTBEAT", heartbeat)
             await asyncio.sleep(10)
 
     # Collect all local IP addresses
