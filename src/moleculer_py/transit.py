@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import logging
 from dataclasses import asdict
 from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
@@ -28,6 +29,7 @@ from .packets import (
 )
 
 CLIENT_INFO = PacketInfo.Client(type="python", version="0.14.33", langVersion="")
+logger = logging.getLogger("Transit")
 
 
 class Transit:
@@ -45,7 +47,6 @@ class Transit:
     async def connect(self):
         await self.transport.connect()
         await self.subscribe_channels()
-        await self.send_info()
         await self.send_discover()
         self._running = True
         self._heartbeat_task = asyncio.create_task(self.heartbeat_loop())
@@ -67,7 +68,7 @@ class Transit:
     async def handle_packet(self, message_type: str, packet: Dict[str, Any]):
         try:
             parsed = parse_packet_by_type(message_type, packet)
-            print(f"[Transit] Recv packet ({type(parsed).__name__}): {parsed}")
+            logger.debug(f"Recv packet ({type(parsed).__name__})")
             match parsed:
 
                 # Discover -> reply broker info
@@ -81,6 +82,10 @@ class Transit:
                     # TODO: Send Pong
                     pass
 
+                case PacketInfo() as info:
+                    self.broker._update_registry(info)
+                    pass
+
                 case PacketHeartbeat() as heart_beat:
                     pass
 
@@ -89,44 +94,25 @@ class Transit:
                 case _:
                     pass
         except Exception as e:
-            print(f"[Transit] Failed to parse packet: {e}\nRaw: {packet}")
+            logger.error(f"Failed to parse packet: {e}\nRaw: {packet}")
 
     async def send_packet(self, message_type: str, packet: TypeAllPacket) -> None:
-        print(f"[Transit] Send packet ({type(packet).__name__}): {packet}")
+        logger.debug(f"Send packet ({type(packet).__name__})")
         return await self.transport.publish(message_type, asdict(packet))
 
     async def send_info(self, target_node_id: str | None = None):
-        serializable_services = []
-        for name, service_def in self.broker.services.items():
-            actions = {
-                action_name: {"name": action_name}
-                for action_name in service_def.get("actions", {})
-            }
-            events = {
-                event_name: {"name": event_name}
-                for event_name in service_def.get("events", {})
-            }
-            serializable_services.append(
-                {
-                    "name": name,
-                    "version": service_def.get("version"),
-                    "settings": service_def.get("settings", {}),
-                    "metadata": service_def.get("metadata", {}),
-                    "actions": actions,
-                    "events": events,
-                    "nodeID": self.broker.node_id,
-                }
-            )
+
         ip_list = self.get_local_ip_addresses()
 
         info = PacketInfo(
             ver="4",
             sender=self.broker.node_id,
-            services=serializable_services,
+            services=self.broker.cached_serializable_services,
             hostname=socket.gethostname(),
             ipList=ip_list,
             instanceID=self.broker.instance_id,
             client=CLIENT_INFO,
+            seq=self.broker.info_seq,
         )
 
         message_type = "MOL.INFO"
