@@ -39,7 +39,7 @@ class GreeterService(BaseService):
         params={"name": {"type": "string"}},
     )
     async def hello(self, params: Dict[str, Any]):
-        return f"Hello, {params.get('name', 'World')}!"
+        return f"Hello, {params.get('name', 'anonymous-👤')}!"
 
 
 async def main():

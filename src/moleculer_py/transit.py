@@ -87,18 +87,7 @@ class Transit:
                     pass
 
                 case PacketRequest() as req:
-                    # Dummy Test response
-                    logger.info(req)
-                    message_type = f"MOL.RES.{req.sender}"
-                    answer = PacketResponse(
-                        ver="4",
-                        sender=self.broker.node_id,
-                        id=req.id,
-                        success=True,
-                        data={"m": "dummy"},
-                    )
-                    await self._send_packet(message_type, answer)
-
+                    await self.broker._handle_incoming_request(req)
                     pass
 
                 case PacketHeartbeat() as heart_beat:

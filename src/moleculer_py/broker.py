@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+import json
 
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
@@ -10,7 +11,14 @@ if TYPE_CHECKING:
 
 
 from .utils import now
-from .packets import PacketDisconnect, PacketHeartbeat, PacketInfo
+from .packets import (
+    PacketDisconnect,
+    PacketHeartbeat,
+    PacketInfo,
+    PacketRequest,
+    PacketResponse,
+    DataType,
+)
 from .data import NodeInfo, Registry, ServiceInfo, ActionInfo, ClientInfo
 from .redis_transport import RedisTransport
 from .transit import Transit
@@ -175,6 +183,78 @@ class Broker:
             if not node.isOnline:
                 logger.info(f"Node '{sender}' disconnected.")
             node.isOnline = False
+
+    async def _handle_incoming_request(self, packet: PacketRequest) -> None:
+        """Handle an incoming action request packet asynchronously and send a response."""
+        import json
+        from .packets import DataType
+
+        action_name = packet.action
+        handler = None
+        for service in self._services.values():
+            handler = service.get_action(action_name)
+            if handler:
+                break
+        if not handler:
+            response = PacketResponse(
+                ver=packet.ver,
+                sender=self.node_id,
+                id=packet.id,
+                success=False,
+                error=f"Action '{action_name}' not found on this node.",
+            )
+            await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+            return
+        params = None
+        if packet.params is not None:
+            try:
+                if packet.paramsType == DataType.JSON:
+                    params = json.loads(packet.params.decode("utf-8"))
+                elif packet.paramsType == DataType.BUFFER:
+                    params = packet.params
+                else:
+                    params = packet.params
+            except Exception as e:
+                response = PacketResponse(
+                    ver=packet.ver,
+                    sender=self.node_id,
+                    id=packet.id,
+                    success=False,
+                    error=f"Failed to decode params: {e}",
+                )
+                await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+                return
+
+        async def handle_and_respond():
+            try:
+                if params is not None:
+                    result = await handler(params)
+                else:
+                    result = await handler()
+                if isinstance(result, (dict, list, str, int, float, bool, type(None))):
+                    data_type = DataType.JSON
+                else:
+                    data_type = DataType.BUFFER
+                response = PacketResponse(
+                    ver=packet.ver,
+                    sender=self.node_id,
+                    id=packet.id,
+                    success=True,
+                    data=result,
+                    dataType=data_type,
+                )
+            except Exception as e:
+                logger.exception(f"Error while handling action '{action_name}'")
+                response = PacketResponse(
+                    ver=packet.ver,
+                    sender=self.node_id,
+                    id=packet.id,
+                    success=False,
+                    error=str(e),
+                )
+            await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+
+        asyncio.create_task(handle_and_respond())
 
     def _refresh_node_online_status(self):
         now_ms = now()
