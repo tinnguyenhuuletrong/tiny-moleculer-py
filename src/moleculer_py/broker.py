@@ -24,7 +24,7 @@ from .redis_transport import RedisTransport
 from .transit import Transit
 from .service import BaseService
 
-logger = logging.getLogger("Broker")
+logger = logging.getLogger("broker")
 
 
 class Broker:

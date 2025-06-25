@@ -1,8 +1,11 @@
 import asyncio
 import json
+import logging
 from typing import Callable, Dict, Any, Optional, Awaitable, List
 import redis.asyncio as aioredis
 from redis.asyncio.client import PubSub
+
+logger = logging.getLogger("trans")
 
 
 class RedisTransport:
@@ -36,12 +39,12 @@ class RedisTransport:
         self._running = True
 
         if self._subscribed_channels:
-            print(f"Resubscribing to channels: {list(self._subscribed_channels)}")
+            logger.info(f"Resubscribing to channels: {list(self._subscribed_channels)}")
             await self.pubsub.subscribe(*self._subscribed_channels)
 
         if self.on_connect:
             await self.on_connect()
-        print(f"Connected to Redis at {self.redis_url}")
+        logger.info(f"Connected to Redis at {self.redis_url}")
         if self.listen_task is None or self.listen_task.done():
             self.listen_task = asyncio.create_task(self.listen())
 
@@ -58,7 +61,7 @@ class RedisTransport:
             await self.sub_client.close()
         if self.on_disconnect:
             await self.on_disconnect()
-        print("Disconnected from Redis.")
+        logger.info("Disconnected from Redis.")
 
     async def subscribe(self, channels: List[str]):
         """Subscribe to a list of channels."""
@@ -73,7 +76,7 @@ class RedisTransport:
             raise RuntimeError("Not connected to Redis.")
         await self.pubsub.unsubscribe(*channels)
         self._subscribed_channels.difference_update(channels)
-        print(f"Unsubscribed from channels: {channels}")
+        logger.info(f"Unsubscribed from channels: {channels}")
 
     async def publish(self, channel: str, packet: Dict[str, Any]):
         """Publish a packet to a channel (JSON encoded)."""
@@ -126,7 +129,9 @@ class RedisTransport:
                 try:
                     packet = self.decode_packet(message["data"])
                 except json.JSONDecodeError as e:
-                    print(f"Failed to decode message on channel '{channel}': {e}")
+                    logger.error(
+                        f"Failed to decode message on channel '{channel}': {e}"
+                    )
                     if self.on_error:
                         await self.on_error(e)
                     continue
@@ -136,7 +141,7 @@ class RedisTransport:
                 else:
                     await self.dispatch_packet(channel, packet)
             except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-                print(
+                logger.error(
                     f"Redis connection error: {e}. Reconnecting in {self._reconnect_delay}s..."
                 )
                 if self.on_error:
@@ -150,13 +155,13 @@ class RedisTransport:
                 try:
                     # Previous connection is broken, create a new one.
                     await self.connect()
-                    print("Reconnected to Redis successfully.")
+                    logger.info("Reconnected to Redis successfully.")
                 except Exception as recon_e:
-                    print(f"Failed to reconnect to Redis: {recon_e}")
+                    logger.info(f"Failed to reconnect to Redis: {recon_e}")
                     # The loop will continue and try again after another delay
                     # because of the sleep at the top of the loop.
             except Exception as e:
-                print(f"Unexpected error in Redis listen loop: {e}")
+                logger.error(f"Unexpected error in Redis listen loop: {e}")
                 if self.on_error:
                     await self.on_error(e)
                 # For unexpected errors, maybe we should stop.
@@ -165,7 +170,7 @@ class RedisTransport:
 
     async def dispatch_packet(self, channel: str, packet: Dict[str, Any]):
         """Default packet dispatch if no handler is registered."""
-        print(f"Dispatching packet from {channel}: {packet}")
+        logger.warning(f"Not implement dispatching packet from {channel}: {packet}")
 
     async def close(self):
         """Gracefully close the transport."""

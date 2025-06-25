@@ -1,23 +1,24 @@
-from typing import Dict
-from typing import Any
+from typing import Dict, Any
 import aioconsole
 import asyncio
+import logging
 from moleculer_py.broker import Broker
 from moleculer_py import BaseService, action
-import logging
+from helper.log_helper import setup_global_logging
 
-logging.basicConfig(level=logging.INFO)
+setup_global_logging(level=logging.INFO)
+logger = logging.getLogger("app")
 
 
 async def read_input_async(broker: Broker):
     while True:
         try:
-            data = await aioconsole.ainput("> ")
+            data = await aioconsole.ainput("\n> \n")
             cmd = data.strip()
             if cmd == "exit":
-                print("Exiting...")
+                logger.info("Exiting...")
                 break
-            print(f"Received command: {cmd}")
+            logger.info(f"Received command: {cmd}")
             match cmd:
                 case "nodes":
                     await aioconsole.aprint(
@@ -30,7 +31,7 @@ async def read_input_async(broker: Broker):
                 case _:
                     continue
         except Exception as e:
-            print(e)
+            logger.error(e)
 
 
 # Define the greeter service using BaseService
@@ -47,14 +48,14 @@ async def main():
     broker = Broker(node_id="python-node-1", redis_url="redis://localhost:6379/15")
 
     # Start the broker
-    print("Starting broker...")
+    logger.info("Starting broker...")
     await broker.start()
 
     # Register the greeter service (using BaseService)
     GreeterService(broker, name="greeter-py")
 
     # Run for 15 seconds to demonstrate lifecycle
-    print("Broker is running. Press Ctrl+C to stop.")
+    logger.info("Broker is running. Press Ctrl+C to stop.")
 
     try:
         # await asyncio.sleep(15_000_000)
@@ -63,9 +64,9 @@ async def main():
         pass
 
     # Stop the broker
-    print("Stopping broker...")
+    logger.info("Stopping broker...")
     await broker.stop()
-    print("Broker stopped.")
+    logger.info("Broker stopped.")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ from .packets import (
 )
 
 CLIENT_INFO = PacketInfo.Client(type="python", version="0.14.33", langVersion="")
-logger = logging.getLogger("Transit")
+logger = logging.getLogger("transit")
 
 
 class Transit:

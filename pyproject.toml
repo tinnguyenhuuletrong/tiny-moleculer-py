@@ -12,6 +12,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "aioconsole>=0.8.1",
+    "colorlog>=6.9.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
 ]
