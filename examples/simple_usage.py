@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Any
 import aioconsole
 import asyncio
@@ -8,6 +9,9 @@ from helper.log_helper import setup_global_logging
 
 setup_global_logging(level=logging.INFO)
 logger = logging.getLogger("app")
+
+# Set Debug level in broker module only
+logging.getLogger("broker").setLevel(logging.DEBUG)
 
 
 async def read_input_async(broker: Broker):
@@ -27,6 +31,10 @@ async def read_input_async(broker: Broker):
                     pass
                 case "services":
                     await aioconsole.aprint(broker.get_services())
+                    pass
+                case "test":
+                    res = await broker.call("$node.services", params={})
+                    await aioconsole.aprint(json.dumps(res, indent=2, separators=None))
                     pass
                 case _:
                     continue

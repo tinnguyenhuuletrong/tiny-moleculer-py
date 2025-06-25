@@ -8,7 +8,7 @@ import sys
 import types
 
 # Import BaseService and action from the correct path
-from moleculer_py.data import ServiceInfo
+from moleculer_py.data import ServiceInfo, Registry, NodeInfo, ActionInfo, ClientInfo
 from moleculer_py.service import BaseService, action
 from moleculer_py.broker import Broker
 from moleculer_py.packets import PacketRequest, DataType, PacketResponse
@@ -21,7 +21,7 @@ async def dummy(target_node_id: str | None = None):
 @pytest.mark.asyncio
 async def test_action_decorator_and_registration():
     broker = Broker("")
-    broker.transit._send_info = dummy
+    broker.transit.send_info = dummy
 
     class MyService(BaseService):
         @action(params={"name": {"type": "string", "default": "World"}})
@@ -76,7 +76,7 @@ async def test_action_decorator_and_registration():
 @pytest.mark.asyncio
 async def test_broker_handles_multiple_concurrent_requests(monkeypatch):
     broker = Broker("")
-    broker.transit._send_info = dummy
+    broker.transit.send_info = dummy
     responses = []
 
     class MyService(BaseService):
@@ -87,11 +87,11 @@ async def test_broker_handles_multiple_concurrent_requests(monkeypatch):
 
     MyService(broker, name="svc")
 
-    # Patch _send_packet to capture responses
-    async def capture_send_packet(message_type, packet):
+    # Patch send_response to capture responses
+    async def capture_send_response_packet(message_type, packet):
         responses.append((message_type, packet))
 
-    monkeypatch.setattr(broker.transit, "_send_packet", capture_send_packet)
+    monkeypatch.setattr(broker.transit, "send_response", capture_send_response_packet)
 
     # Create multiple requests
     reqs = [
@@ -116,10 +116,240 @@ async def test_broker_handles_multiple_concurrent_requests(monkeypatch):
     assert len(responses) == 10
     ids = set()
     for message_type, packet in responses:
-        assert message_type == "MOL.RES.remote"
+        assert message_type == "remote"
         assert isinstance(packet, PacketResponse)
         assert packet.success is True
         assert packet.data is not None
         assert "echo" in packet.data
         ids.add(packet.id)
     assert ids == {f"req{i}" for i in range(10)}
+
+
+@pytest.mark.asyncio
+async def test_broker_call_success(monkeypatch):
+    broker = Broker("local")
+    # Simulate a remote node with the action
+    action_name = "svc.hello"
+    remote_node_id = "remote1"
+    broker._registry = Registry(
+        nodes={
+            remote_node_id: NodeInfo(
+                nodeId=remote_node_id,
+                ipList=["127.0.0.1"],
+                hostname="host",
+                instanceID="inst",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={
+                            action_name: ActionInfo(
+                                rawName=action_name,
+                                name=action_name,
+                                params={},
+                            )
+                        },
+                        events={},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            )
+        }
+    )
+
+    # Patch send_request to simulate immediate response
+    async def fake_send_packet(channel, packet):
+        # Simulate network: immediately respond
+        resp = PacketResponse(
+            ver="4",
+            sender=remote_node_id,
+            id=packet.id,
+            success=True,
+            data={"msg": "hi"},
+            dataType=DataType.JSON,
+        )
+        broker._handle_response(resp)
+
+    monkeypatch.setattr(broker.transit, "send_request", fake_send_packet)
+    result = await broker.call(action_name, {"foo": "bar"})
+    assert result == {"msg": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_broker_call_timeout(monkeypatch):
+    broker = Broker("local")
+    action_name = "svc.hello"
+    remote_node_id = "remote1"
+    broker._registry = Registry(
+        nodes={
+            remote_node_id: NodeInfo(
+                nodeId=remote_node_id,
+                ipList=["127.0.0.1"],
+                hostname="host",
+                instanceID="inst",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={
+                            action_name: ActionInfo(
+                                rawName=action_name,
+                                name=action_name,
+                                params={},
+                            )
+                        },
+                        events={},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            )
+        }
+    )
+
+    # Patch send_request to do nothing (simulate no response)
+    async def fake_send_packet(channel, packet):
+        pass
+
+    monkeypatch.setattr(broker.transit, "send_request", fake_send_packet)
+    with pytest.raises(RuntimeError, match="Request timeout"):
+        await broker.call(action_name, {"foo": "bar"}, timeout=10)  # 10 ms
+
+
+@pytest.mark.asyncio
+async def test_broker_call_remote_error(monkeypatch):
+    broker = Broker("local")
+    action_name = "svc.hello"
+    remote_node_id = "remote1"
+    broker._registry = Registry(
+        nodes={
+            remote_node_id: NodeInfo(
+                nodeId=remote_node_id,
+                ipList=["127.0.0.1"],
+                hostname="host",
+                instanceID="inst",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={
+                            action_name: ActionInfo(
+                                rawName=action_name,
+                                name=action_name,
+                                params={},
+                            )
+                        },
+                        events={},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            )
+        }
+    )
+
+    # Patch send_request to simulate remote error response
+    async def fake_send_packet(channel, packet):
+        resp = PacketResponse(
+            ver="4",
+            sender=remote_node_id,
+            id=packet.id,
+            success=False,
+            error="Something went wrong",
+            dataType=DataType.JSON,
+        )
+        broker._handle_response(resp)
+
+    monkeypatch.setattr(broker.transit, "send_request", fake_send_packet)
+    with pytest.raises(RuntimeError, match="Something went wrong"):
+        await broker.call(action_name, {"foo": "bar"})
+
+
+@pytest.mark.asyncio
+async def test_broker_call_multiple_concurrent(monkeypatch):
+    broker = Broker("local")
+    action_name = "svc.hello"
+    remote_node_id = "remote1"
+    broker._registry = Registry(
+        nodes={
+            remote_node_id: NodeInfo(
+                nodeId=remote_node_id,
+                ipList=["127.0.0.1"],
+                hostname="host",
+                instanceID="inst",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={
+                            action_name: ActionInfo(
+                                rawName=action_name,
+                                name=action_name,
+                                params={},
+                            )
+                        },
+                        events={},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            )
+        }
+    )
+
+    # Patch send_request to respond to each call with the correct id and data
+    async def fake_send_packet(channel, packet):
+        # Simulate network: respond after a small delay, with unique data per call
+        await asyncio.sleep(0.01)
+        resp = PacketResponse(
+            ver="4",
+            sender=remote_node_id,
+            id=packet.id,
+            success=True,
+            data={"msg": packet.params},
+            dataType=DataType.JSON,
+        )
+        broker._handle_response(resp)
+
+    monkeypatch.setattr(broker.transit, "send_request", fake_send_packet)
+    # Fire multiple calls concurrently
+    payloads = [{"foo": f"bar{i}"} for i in range(5)]
+    results = await asyncio.gather(
+        *[broker.call(action_name, payload) for payload in payloads]
+    )
+    # Each result should match the corresponding payload
+    for i, result in enumerate(results):
+        assert result["msg"] == payloads[i]

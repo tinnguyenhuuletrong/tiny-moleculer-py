@@ -51,6 +51,7 @@ class Broker:
         self.info_seq = 1
         self.cached_serializable_services = []
         self._registry: Registry = Registry({})
+        self._pending_responses: Dict[str, asyncio.Future] = {}
 
     async def start(self):
         """Start the broker: connect transit (which handles transport, subscribe, announce presence, heartbeat)."""
@@ -72,7 +73,7 @@ class Broker:
         self.info_seq += 1
         self._build_serialize_service()
 
-        asyncio.create_task(self.transit._send_info())
+        asyncio.create_task(self.transit.send_info())
 
     async def call(
         self,
@@ -80,10 +81,74 @@ class Broker:
         params: Any,
         meta: Optional[Dict[str, Any]] = None,
         timeout: Optional[float] = None,
+        node_id: str | None = None,
     ):
         """Call an action on the network (send REQ packet, await RES)."""
-        # TODO: Implement action call logic
-        pass
+
+        # 1. Find a remote node that has the action
+        target_node_id = node_id
+        if target_node_id is None:
+            found = self._registry.find_remote_action(action)
+            if not found:
+                raise RuntimeError(f"No remote node found for action '{action}'")
+            target_node_id, action_info = found
+
+        # 2. Prepare params
+        if isinstance(params, (dict, list, str, int, float, bool, type(None))):
+            params_bytes: Any = params
+            params_type = DataType.JSON
+        else:
+            params_bytes = params
+            params_type = DataType.BUFFER
+
+        # 3. Create request id and PacketRequest
+        req_id = str(uuid.uuid4())
+        packet = PacketRequest(
+            ver="4",
+            sender=self.node_id,
+            id=req_id,
+            action=action,
+            params=params_bytes,
+            paramsType=params_type,
+            meta=json.dumps(meta) if meta else None,
+            timeout=timeout,
+        )
+
+        # 4. Register a future for the response
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self._pending_responses[req_id] = fut
+
+        # 5. Send the request
+        await self.transit.send_request(target_node_id, packet)
+
+        logger.debug(f"-> {target_node_id}.{action} req_id={req_id}")
+
+        # 6. Wait for the response or timeout
+        try:
+            if timeout:
+                done, pending = await asyncio.wait(
+                    [fut], timeout=timeout / 1000, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not done:
+                    self._pending_responses.pop(req_id, None)
+                    raise RuntimeError("Request timeout")
+                result = fut.result()
+            else:
+                result = await fut
+        finally:
+            self._pending_responses.pop(req_id, None)
+
+        if not result.success:
+            raise RuntimeError(f"Remote error: {result.error}")
+        return result.data
+
+    # Add a handler for incoming PacketResponse
+    def _handle_response(self, packet: PacketResponse):
+        logger.debug(f"<- req_id={packet.id}")
+        fut = self._pending_responses.get(packet.id)
+        if fut and not fut.done():
+            fut.set_result(packet)
 
     async def emit(
         self,
@@ -186,8 +251,6 @@ class Broker:
 
     async def _handle_incoming_request(self, packet: PacketRequest) -> None:
         """Handle an incoming action request packet asynchronously and send a response."""
-        import json
-        from .packets import DataType
 
         action_name = packet.action
         handler = None
@@ -203,7 +266,7 @@ class Broker:
                 success=False,
                 error=f"Action '{action_name}' not found on this node.",
             )
-            await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+            await self.transit.send_response(packet.sender, response)
             return
         params = None
         if packet.params is not None:
@@ -222,7 +285,7 @@ class Broker:
                     success=False,
                     error=f"Failed to decode params: {e}",
                 )
-                await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+                await self.transit.send_response(packet.sender, response)
                 return
 
         async def handle_and_respond():
@@ -252,7 +315,7 @@ class Broker:
                     success=False,
                     error=str(e),
                 )
-            await self.transit._send_packet(f"MOL.RES.{packet.sender}", response)
+            await self.transit.send_response(packet.sender, response)
 
         asyncio.create_task(handle_and_respond())
 

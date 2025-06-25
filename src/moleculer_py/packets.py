@@ -37,7 +37,7 @@ class PacketRequest:
     sender: str
     id: str
     action: str
-    params: Optional[bytes] = None
+    params: Optional[Any] = None
     paramsType: DataType = DataType.UNDEFINED
     meta: Optional[str] = None
     timeout: Optional[float] = None

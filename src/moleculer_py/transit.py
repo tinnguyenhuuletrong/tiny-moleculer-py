@@ -47,7 +47,7 @@ class Transit:
     async def connect(self):
         await self.transport.connect()
         await self.subscribe_channels()
-        await self._send_discover()
+        await self.send_discover()
         self._running = True
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
@@ -55,7 +55,7 @@ class Transit:
         self._running = False
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
-        await self._send_disconnect()
+        await self.send_disconnect()
         await self.transport.close()
 
     async def subscribe_channels(self):
@@ -74,12 +74,12 @@ class Transit:
                 # Discover -> reply broker info
                 case PacketDiscover() as discover:
                     if discover.sender != self.broker.node_id:
-                        await self._send_discover(discover.sender)
-                        await self._send_info(discover.sender)
+                        await self.send_discover(discover.sender)
+                        await self.send_info(discover.sender)
                     pass
 
                 case PacketPing() as ping:
-                    await self._send_pong(ping)
+                    await self.send_pong(ping)
                     pass
 
                 case PacketInfo() as info:
@@ -98,6 +98,10 @@ class Transit:
                     self.broker._handle_disconnect(dis)
                     pass
 
+                case PacketResponse() as resp:
+                    self.broker._handle_response(resp)
+                    pass
+
                 # Add more cases for other packet types as needed
                 # TODO: Call into broker for action/event/heartbeat logic
                 case _:
@@ -109,7 +113,13 @@ class Transit:
         logger.debug(f"Send packet ({type(packet).__name__})")
         return await self.transport.publish(message_type, asdict(packet))
 
-    async def _send_info(self, target_node_id: str | None = None):
+    async def send_request(self, target_node_id: str, packet: PacketRequest) -> None:
+        return await self._send_packet(f"MOL.REQ.{target_node_id}", packet)
+
+    async def send_response(self, target_node_id: str, packet: PacketResponse) -> None:
+        return await self._send_packet(f"MOL.RES.{target_node_id}", packet)
+
+    async def send_info(self, target_node_id: str | None = None):
         ip_list = self._get_local_ip_addresses()
         info = PacketInfo(
             ver="4",
@@ -127,14 +137,14 @@ class Transit:
             message_type = f"MOL.INFO.{target_node_id}"
         await self._send_packet(message_type, info)
 
-    async def _send_discover(self, target_node_id: str | None = None):
+    async def send_discover(self, target_node_id: str | None = None):
         discover = PacketDiscover(ver="4", sender=self.broker.node_id)
         message_type = "MOL.DISCOVER"
         if target_node_id != None:
             message_type = f"MOL.DISCOVER.{target_node_id}"
         await self._send_packet(message_type, discover)
 
-    async def _send_pong(self, ping_packet: PacketPing):
+    async def send_pong(self, ping_packet: PacketPing):
         pong = PacketPong(
             ver="4",
             sender=self.broker.node_id,
@@ -148,7 +158,7 @@ class Transit:
             message_type = f"MOL.PONG.{target_node_id}"
         await self._send_packet(message_type, pong)
 
-    async def _send_disconnect(self):
+    async def send_disconnect(self):
         disconnect = PacketDisconnect(ver="4", sender=self.broker.node_id)
         await self._send_packet("MOL.DISCONNECT", disconnect)
 
