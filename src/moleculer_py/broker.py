@@ -2,13 +2,19 @@ import asyncio
 import logging
 import uuid
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from .broker import Broker
+
 
 from .utils import now
 from .packets import PacketDisconnect, PacketHeartbeat, PacketInfo
 from .data import NodeInfo, Registry, ServiceInfo, ActionInfo, ClientInfo
 from .redis_transport import RedisTransport
 from .transit import Transit
+from .service import BaseService
 
 logger = logging.getLogger("Broker")
 
@@ -32,7 +38,8 @@ class Broker:
         self.transport = RedisTransport(redis_url=redis_url, node_id=node_id)
         self.transit = Transit(self, self.transport)
         self.cfg_node_ping_timeout_ms = cfg_node_ping_timeout_ms
-        self.services = {}  # service_name -> service definition (placeholder)
+        self.meta_services: Dict[str, ServiceInfo] = {}
+        self._services: Dict[str, BaseService] = {}
         self.info_seq = 1
         self.cached_serializable_services = []
         self._registry: Registry = Registry({})
@@ -47,12 +54,17 @@ class Broker:
         await self.transit.disconnect()
         logger.info(f"Broker {self.node_id} stopped.")
 
-    async def register_service(self, name: str, service_def: Dict[str, Any]):
+    def register_service(
+        self, name: str, service_ins: BaseService, service_def: Dict[str, Any]
+    ):
         """Register a service (actions/events)."""
-        self.services[name] = service_def
+        tmp = ServiceInfo.from_dict(service_def)
+        self.meta_services[name] = tmp
+        self._services[name] = service_ins
         self.info_seq += 1
         self._build_serialize_service()
-        await self.transit._send_info()
+
+        asyncio.create_task(self.transit._send_info())
 
     async def call(
         self,
@@ -79,6 +91,9 @@ class Broker:
     def get_registry(self):
         self._refresh_node_online_status()
         return self._registry
+
+    def get_services(self):
+        return self._services
 
     def _handle_packet_info(self, info: PacketInfo):
         # Convert PacketInfo.services (list of dicts) to List[ServiceInfo]
@@ -179,22 +194,21 @@ class Broker:
 
     def _build_serialize_service(self):
         serializable_services = []
-        for name, service_def in self.services.items():
+        for name, service_def in self.meta_services.items():
             actions = {
-                action_name: {"name": action_name}
-                for action_name in service_def.get("actions", {})
+                k: {"name": k, "params": action.params, "rawName": k}
+                for [k, action] in service_def.actions.items()
             }
             events = {
-                event_name: {"name": event_name}
-                for event_name in service_def.get("events", {})
+                event_name: {"name": event_name} for event_name in service_def.events
             }
             serializable_services.append(
                 {
                     "name": name,
                     "fullName": name,
-                    "version": service_def.get("version"),
-                    "settings": service_def.get("settings", {}),
-                    "metadata": service_def.get("metadata", {}),
+                    "version": service_def.version,
+                    "settings": service_def.settings,
+                    "metadata": service_def.metadata,
                     "actions": actions,
                     "events": events,
                 }

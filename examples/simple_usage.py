@@ -1,6 +1,9 @@
+from typing import Dict
+from typing import Any
 import aioconsole
 import asyncio
 from src.moleculer_py.broker import Broker
+from src.moleculer_py import BaseService, action
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -20,10 +23,23 @@ async def read_input_async(broker: Broker):
                     await aioconsole.aprint(
                         broker.get_registry().to_json(indent=2, separators=None)
                     )
+                    pass
+                case "services":
+                    await aioconsole.aprint(broker.get_services())
+                    pass
                 case _:
                     continue
         except Exception as e:
             print(e)
+
+
+# Define the greeter service using BaseService
+class GreeterService(BaseService):
+    @action(
+        params={"name": {"type": "string"}},
+    )
+    async def hello(self, params: Dict[str, Any]):
+        return f"Hello, {params.get('name', 'World')}!"
 
 
 async def main():
@@ -34,16 +50,8 @@ async def main():
     print("Starting broker...")
     await broker.start()
 
-    # Register a dummy service (actions/events are placeholders)
-    await broker.register_service(
-        "greeter-py",
-        {
-            "actions": {
-                "python.hello": lambda params: f"Hello, {params.get('name', 'World')}!"
-            },
-            "events": {},
-        },
-    )
+    # Register the greeter service (using BaseService)
+    GreeterService(broker, name="greeter-py")
 
     # Run for 15 seconds to demonstrate lifecycle
     print("Broker is running. Press Ctrl+C to stop.")

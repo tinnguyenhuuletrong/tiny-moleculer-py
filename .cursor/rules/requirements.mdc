@@ -57,7 +57,7 @@ The Python Moleculer service will be a standalone `asyncio` application that con
 
 ### 5.1 Redis Transport Layer
 
-> Reference: [https://github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js](https://github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js)
+> Reference: [https://github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js](mdc:https:/github.com/moleculerjs/moleculer/blob/master/src/transporters/redis.js)
 
 This component is responsible for connecting to Redis, managing subscriptions, and handling the low-level sending and receiving of Moleculer packets.
 
@@ -76,3 +76,39 @@ This component is responsible for connecting to Redis, managing subscriptions, a
     * Python objects -> `json.dumps()` -> Redis.
     * Redis -> `json.loads()` -> Python dictionary.
 * **Packet Handling:** A central dispatch mechanism will listen to subscribed Redis channels, parse incoming packets, and route them to the appropriate handlers (e.g., action invoker, event listener, node manager).
+
+
+### 5.2 BaseService and Action decorator
+
+This component is BaseService and python method decorator 
+
+Usage can be like 
+
+```python
+
+class SomeService(BaseService):
+    def __init__(self, broker, name, settings=None, version=None):
+        super(broker)
+
+     # --- Example Service Methods using Decorators ---
+    @action(params={"name": {"type": "string", "default": "World"}})
+    async def hello(self, ctx):
+        """
+        Example action. 'ctx' will be the context object.
+        """
+        name = ctx.params.get("name", "World")
+        return {"message": f"Hello, {name} from Python Service!"}
+
+    @action(name="math.add", cache=True, params={"a": {"type": "number"}, "b": {"type": "number"}})
+    async def calculate_sum(self, ctx):
+        """
+        Example action with custom name and caching enabled.
+        """
+        a = ctx.params.get("a", 0)
+        b = ctx.params.get("b", 0)
+        return {"result": a + b}
+
+```
+
+- `BaseService` scan all action decorator -> add it into `services` registry
+- when broker `_handle_packet_request` -> lookup and dispatch action call -> construct the response

@@ -1,4 +1,5 @@
 import dataclasses
+from sys import version
 from dataclasses_json import DataClassJsonMixin
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -23,11 +24,11 @@ class RuleInfo(DataClassJsonMixin):
 class ActionInfo(DataClassJsonMixin):
     """Represents a specific action within a service."""
 
-    cache: bool
-    tracing: bool
     rawName: str
     name: str
     params: Optional[Dict[str, Any]] = None  # Can be empty
+    tracing: Optional[bool] = False
+    cache: Optional[bool] = False
 
 
 @dataclasses.dataclass
@@ -40,6 +41,7 @@ class ServiceInfo(DataClassJsonMixin):
     metadata: Dict[str, Any]  # Empty dict in example
     actions: Dict[str, ActionInfo]
     events: Dict[str, Any]  # Empty dict in example
+    version: Optional[str] = ""
 
 
 @dataclasses.dataclass
