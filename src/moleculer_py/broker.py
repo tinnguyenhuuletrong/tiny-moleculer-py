@@ -271,8 +271,10 @@ class Broker:
         params = None
         if packet.params is not None:
             try:
-                if packet.paramsType == DataType.JSON:
-                    params = json.loads(packet.params.decode("utf-8"))
+                if packet.paramsType == DataType.JSON and isinstance(
+                    packet.params, str
+                ):
+                    params = json.loads(packet.params)
                 elif packet.paramsType == DataType.BUFFER:
                     params = packet.params
                 else:

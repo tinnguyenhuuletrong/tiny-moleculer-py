@@ -1,0 +1,1 @@
+bun run ./js-service/sample.ts

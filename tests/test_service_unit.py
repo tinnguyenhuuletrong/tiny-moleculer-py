@@ -100,7 +100,7 @@ async def test_broker_handles_multiple_concurrent_requests(monkeypatch):
             sender="remote",
             id=f"req{i}",
             action="svc.echo",
-            params=json.dumps({"n": i}).encode("utf-8"),
+            params=json.dumps({"n": i}),
             paramsType=DataType.JSON,
         )
         for i in range(10)

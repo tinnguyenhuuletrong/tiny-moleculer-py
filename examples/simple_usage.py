@@ -22,7 +22,6 @@ async def read_input_async(broker: Broker):
             if cmd == "exit":
                 logger.info("Exiting...")
                 break
-            logger.info(f"Received command: {cmd}")
             match cmd:
                 case "nodes":
                     await aioconsole.aprint(
@@ -32,11 +31,39 @@ async def read_input_async(broker: Broker):
                 case "services":
                     await aioconsole.aprint(broker.get_services())
                     pass
-                case "test":
-                    res = await broker.call("$node.services", params={})
-                    await aioconsole.aprint(json.dumps(res, indent=2, separators=None))
+                case _ if cmd.startswith("call"):
+                    # Parse: call <action_name> <params_json>
+                    try:
+                        parts = cmd.split(" ", 2)
+                        if len(parts) < 2:
+                            await aioconsole.aprint(
+                                "Usage: call <action_name> <params_json>"
+                            )
+                            continue
+                        action_name = parts[1]
+                        params = {}
+                        if len(parts) == 3:
+                            try:
+                                params = json.loads(parts[2])
+                            except Exception as e:
+                                await aioconsole.aprint(f"Invalid JSON for params: {e}")
+                                continue
+                        res = await broker.call(action_name, params=params)
+                        await aioconsole.aprint(
+                            json.dumps(res, indent=2, separators=None)
+                        )
+                    except Exception as e:
+                        await aioconsole.aprint(f"Error: {e}")
                     pass
                 case _:
+                    help_msg = (
+                        "Available commands:\n"
+                        "  nodes                - Show the current node registry as JSON\n"
+                        "  services             - List registered services\n"
+                        '  call <action> <params_json> - Call an action with params (e.g. call greeter-py.hello {"name": "Alice"})\n'
+                        "  exit                 - Exit the CLI\n"
+                    )
+                    await aioconsole.aprint(help_msg)
                     continue
         except Exception as e:
             logger.error(e)
