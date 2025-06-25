@@ -1,5 +1,5 @@
 import pytest
-from src.moleculer_py.packets import (
+from moleculer_py.packets import (
     parse_packet_by_type,
     PacketEvent,
     PacketRequest,

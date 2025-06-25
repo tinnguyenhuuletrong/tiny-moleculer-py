@@ -1,5 +1,5 @@
 import pytest
-from src.moleculer_py.data import (
+from moleculer_py.data import (
     Registry,
     NodeInfo,
     ServiceInfo,
@@ -8,9 +8,9 @@ from src.moleculer_py.data import (
 )
 import time
 import types
-from src.moleculer_py.broker import Broker
-from src.moleculer_py.packets import PacketHeartbeat, PacketDisconnect
-from src.moleculer_py.utils import now
+from moleculer_py.broker import Broker
+from moleculer_py.packets import PacketHeartbeat, PacketDisconnect
+from moleculer_py.utils import now
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def test_handle_heart_beat_marks_online_and_offline(monkeypatch):
     )
 
     # Patch now() to a fixed value for repeatability
-    monkeypatch.setattr("src.moleculer_py.broker.now", lambda: now0)
+    monkeypatch.setattr("moleculer_py.broker.now", lambda: now0)
 
     # Send heartbeat from n3 (was offline)
     packet = PacketHeartbeat(ver="1", sender="n3")
@@ -134,7 +134,7 @@ def test_handle_disconnect(monkeypatch):
     )
 
     # Patch now() to a fixed value
-    monkeypatch.setattr("src.moleculer_py.broker.now", lambda: now0)
+    monkeypatch.setattr("moleculer_py.broker.now", lambda: now0)
 
     # Send disconnect from n2
     packet = PacketDisconnect(ver="4", sender="n2")

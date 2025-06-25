@@ -2,8 +2,8 @@ from typing import Dict
 from typing import Any
 import aioconsole
 import asyncio
-from src.moleculer_py.broker import Broker
-from src.moleculer_py import BaseService, action
+from moleculer_py.broker import Broker
+from moleculer_py import BaseService, action
 import logging
 
 logging.basicConfig(level=logging.INFO)

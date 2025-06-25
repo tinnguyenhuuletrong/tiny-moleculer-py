@@ -61,7 +61,7 @@ This project uses [uv](https://github.com/astral-sh/uv) for project and dependen
 ### Test
 
 ```bash
-uv run -m pytest
+uv run pytest
 ```
 
 ### Example run
@@ -69,7 +69,7 @@ uv run -m pytest
 ```bash
 cd examples/compose && sh ./run-dev.sh
 
-uv run -m examples.simple_usage
+uv run ./examples/simple_usage.py
 ```
 
 ### Usage

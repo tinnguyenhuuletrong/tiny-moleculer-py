@@ -8,10 +8,10 @@ import sys
 import types
 
 # Import BaseService and action from the correct path
-from src.moleculer_py.data import ServiceInfo
-from src.moleculer_py.service import BaseService, action
-from src.moleculer_py.broker import Broker
-from src.moleculer_py.packets import PacketRequest, DataType, PacketResponse
+from moleculer_py.data import ServiceInfo
+from moleculer_py.service import BaseService, action
+from moleculer_py.broker import Broker
+from moleculer_py.packets import PacketRequest, DataType, PacketResponse
 
 
 async def dummy(target_node_id: str | None = None):
