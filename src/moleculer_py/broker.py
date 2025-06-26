@@ -123,7 +123,7 @@ class Broker:
         # 5. Send the request
         await self.transit.send_request(target_node_id, packet)
 
-        logger.debug(f"-> {target_node_id}.{action} req_id={req_id}")
+        logger.debug(f"-> remote action call {target_node_id}.{action} req_id={req_id}")
 
         # 6. Wait for the response or timeout
         try:
@@ -146,7 +146,7 @@ class Broker:
 
     # Add a handler for incoming PacketResponse
     def _handle_response(self, packet: PacketResponse):
-        logger.debug(f"<- req_id={packet.id}")
+        logger.debug(f"<- remote action answer req_id={packet.id}")
         fut = self._pending_responses.get(packet.id)
         if fut and not fut.done():
             fut.set_result(packet)
@@ -360,6 +360,10 @@ class Broker:
                     error=str(e),
                 )
             await self.transit.send_response(packet.sender, response)
+
+        logger.debug(
+            f"<- incoming action call {packet.action} from {packet.sender} req_id={packet.requestID}"
+        )
 
         asyncio.create_task(handle_and_respond())
 

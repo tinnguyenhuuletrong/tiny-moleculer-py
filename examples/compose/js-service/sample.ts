@@ -37,6 +37,33 @@ async function main() {
           _note: "ev_random_number will broadcast later with receiptId",
         };
       },
+
+      async callMe(ctx) {
+        const remoteActionName = "greeter-py.hello";
+        const begin = Date.now();
+        const res = await broker.call(
+          remoteActionName,
+          {
+            name: broker.nodeID,
+          },
+          {
+            nodeID: ctx.nodeID || undefined,
+          }
+        );
+        const end = Date.now();
+
+        console.log("attempt to call greeter-py.hello -> ", res);
+
+        return {
+          isOk: true,
+          info: {
+            remoteNode: ctx.nodeID,
+            remoteActionName,
+            answer: res,
+          },
+          durationMs: end - begin,
+        };
+      },
     },
   });
 

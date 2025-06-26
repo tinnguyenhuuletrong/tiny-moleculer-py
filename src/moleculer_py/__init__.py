@@ -1,1 +1,2 @@
-from .service import Broker, BaseService, action, event
+from .service import BaseService, action, event
+from .broker import Broker
