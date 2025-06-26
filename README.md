@@ -8,12 +8,13 @@ A lightweight, Moleculer-compatible service broker for Python. This project prov
 - **Redis Transport:** Uses Redis pub/sub for efficient messaging between nodes.
 - **Node Discovery:** Nodes discover each other using `DISCOVER` and `INFO` packets.
 - **Actions:** Define and call actions on services using a Pythonic decorator pattern.
-- **BaseService & Decorators:** Use `BaseService` and the `@action` decorator to define services and actions in a style similar to Moleculer.js.
+- **BaseService & Decorators:** Use `BaseService` and the `@action` and `@event` decorators to define services, actions, and event handlers in a style similar to Moleculer.js.
 - **Heartbeating:** Nodes periodically send heartbeat packets to signal their liveness.
 - **Interoperability:** Designed to be compatible with the Moleculer protocol (version "4").
 - **Service Registry:** Maintains a registry of local and remote services/actions.
 - **Remote Action Calling:** Supports calling actions on remote nodes (via `Broker.call`).
 - **Interactive CLI Example:** Example includes an async REPL for interacting with the broker.
+- **Events:** Event listening and handler registration are implemented via the `@event` decorator. Services can react to events broadcast from other nodes (including JS Moleculer nodes). Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced features are still in progress.
 
 ### Work in Progress / Planned
 
@@ -62,11 +63,11 @@ sh ./run-dev.sh
 
 ```
 
-#### Reference JavaScript Broker Example
+#### Reference JavaScript Broker Example (with Events)
 
 To demonstrate interoperability and for testing, a reference Moleculer.js broker is included. This allows you to run a Node.js service alongside the Python broker and test cross-language action calls.
 
-The JS broker is located at `examples/compose/js-service/sample.ts` and can be started with the provided script.
+The JS broker is located at `examples/compose/js-service/sample.ts` and can be started with the provided script. It now includes an `add` action and a `random` action that emits an event after a delay.
 
 **Run the JS broker:**
 
@@ -89,11 +90,25 @@ broker.createService({
         result: Number(ctx.params.a) + Number(ctx.params.b),
       };
     },
+    async random(ctx) {
+      const afterMs = ctx.params["afterMs"] || 1000;
+      const receiptId = Math.round(Math.random() * Date.now());
+      setTimeout(async () => {
+        await broker.emit("ev_random_number", {
+          receiptId,
+          value: Math.random(),
+        });
+      }, afterMs);
+      return {
+        receiptId: receiptId,
+        _note: "ev_random_number will broadcast later with receiptId",
+      };
+    },
   },
 });
 ```
 
-This JS service exposes a `math.add` action that can be called from the Python broker (see the example usage section above for how to call actions across nodes).
+This JS service exposes a `math.add` action and a `math.random` action. The `random` action emits an `ev_random_number` event after a delay, which can be handled by Python services using the event system.
 
 ### Test
 
@@ -103,7 +118,7 @@ uv run pytest
 
 ### Example Usage
 
-Below is an up-to-date example based on `examples/simple_usage.py`:
+Below is an up-to-date example based on `examples/simple_usage.py`, now showing event handling:
 
 ```python
 import json
@@ -113,6 +128,7 @@ import asyncio
 import logging
 from moleculer_py.broker import Broker
 from moleculer_py import BaseService, action
+from moleculer_py.service import event
 
 # Define the greeter service using BaseService
 class GreeterService(BaseService):
@@ -121,6 +137,11 @@ class GreeterService(BaseService):
     )
     async def hello(self, params: Dict[str, Any]):
         return f"Hello, {params.get('name', 'anonymous-👤')}!"
+
+    @event()
+    async def ev_random_number(self, params: Dict[str, Any]):
+        logger.info(f"on ev_random_number {params}")
+        pass
 
 async def main():
     # Create a broker instance with a unique node ID
@@ -175,11 +196,28 @@ call math.add {"a":100, "b": 999}
   "result": 1099
 }
 
+>
+call math.random {}
+[2025-06-25 10:49:59,219] DEBUG  broker   - -> tinnhlt-macbook-pro.local-58153.math.random req_id=6ed5fd49-72e5-49e1-bd97-2a26ec6caf91
+[2025-06-25 10:49:59,223] DEBUG  broker   - <- req_id=6ed5fd49-72e5-49e1-bd97-2a26ec6caf91
+{
+  "receiptId": 650105604722,
+  "_note": "ev_random_number will broadcast later with receiptId"
+}
+
+>
+[2025-06-25 10:50:00,229] INFO   app      - on ev_random_number {'receiptId': 650105604722, 'value': 0.9705537015886184}
+
 ```
 
 ## Project Status
 
-This project is in early development. The core functionality for creating a broker, registering services with actions, and remote action calling is in place. Event handling, robust remote action calling, and other advanced features are planned but not yet implemented. See the feature list above for details.
+This project is in early development, but now supports:
+
+- Creating a broker, registering services with actions, and remote action calling
+- Event handling and event handler registration via the `@event` decorator (including cross-language events with Moleculer.js)
+
+Robust remote action calling and other advanced features are planned but not yet implemented. See the feature list above for details.
 
 ## Limitations & Non-Goals
 
@@ -188,4 +226,4 @@ This project is in early development. The core functionality for creating a brok
 - No support for service mixins or middlewares.
 - No advanced caching or API gateway integration.
 - Metrics, tracing, and logging adapters are not included (basic logging only).
-- Event emission and remote action invocation are not yet implemented.
+- Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced event features (e.g., groups, broadcast options) are not yet implemented.

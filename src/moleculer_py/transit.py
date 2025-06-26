@@ -102,6 +102,10 @@ class Transit:
                     self.broker._handle_response(resp)
                     pass
 
+                case PacketEvent() as ev:
+                    self.broker._handle_incoming_event(ev)
+                    pass
+
                 # Add more cases for other packet types as needed
                 # TODO: Call into broker for action/event/heartbeat logic
                 case _:

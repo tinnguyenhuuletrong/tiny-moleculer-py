@@ -16,7 +16,7 @@ class PacketEvent:
     sender: str
     id: str
     event: str
-    data: Optional[bytes] = None
+    data: Optional[Any] = None
     dataType: DataType = DataType.UNDEFINED
     groups: List[str] = field(default_factory=list)
     meta: Optional[str] = None

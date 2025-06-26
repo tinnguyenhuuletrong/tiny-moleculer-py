@@ -17,6 +17,26 @@ async function main() {
           result: Number(ctx.params.a) + Number(ctx.params.b),
         };
       },
+
+      async random(ctx) {
+        const afterMs = ctx.params["afterMs"] || 1000;
+        const receiptId = Math.round(Math.random() * Date.now());
+        console.log("recieved random request. will emit event after", afterMs);
+        setTimeout(async () => {
+          console.log(
+            "emit success: ",
+            await broker.emit("ev_random_number", {
+              receiptId,
+              value: Math.random(),
+            })
+          );
+        }, afterMs);
+
+        return {
+          receiptId: receiptId,
+          _note: "ev_random_number will broadcast later with receiptId",
+        };
+      },
     },
   });
 

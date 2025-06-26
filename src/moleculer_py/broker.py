@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from .utils import now
 from .packets import (
     PacketDisconnect,
+    PacketEvent,
     PacketHeartbeat,
     PacketInfo,
     PacketRequest,
@@ -248,6 +249,47 @@ class Broker:
             if not node.isOnline:
                 logger.info(f"Node '{sender}' disconnected.")
             node.isOnline = False
+
+    def _handle_incoming_event(self, packet: PacketEvent):
+        """Forward event to all services with a matching event handler. Each handler is invoked asynchronously; errors in one do not affect others."""
+        event_name = packet.event
+        # Decode event data
+        data = None
+        if packet.data is not None:
+            try:
+                if packet.dataType == DataType.JSON and isinstance(
+                    packet.data, (str, bytes)
+                ):
+                    # Accept both str and bytes for robustness
+                    if isinstance(packet.data, bytes):
+                        data = json.loads(packet.data.decode())
+                    else:
+                        data = json.loads(packet.data)
+                elif packet.dataType == DataType.BUFFER:
+                    data = packet.data
+                else:
+                    data = packet.data
+            except Exception as e:
+                logger.exception(
+                    f"Failed to decode event data for event '{event_name}': {e}"
+                )
+                data = None
+
+        for service in self._services.values():
+            handler = service.get_event(event_name)
+            if handler:
+
+                async def handle_event(
+                    handler=handler, data=data, event_name=event_name
+                ):
+                    try:
+                        await handler(data)
+                    except Exception as e:
+                        logger.exception(
+                            f"Error in event handler for '{event_name}' in service '{service.name}': {e}"
+                        )
+
+                asyncio.create_task(handle_event())
 
     async def _handle_incoming_request(self, packet: PacketRequest) -> None:
         """Handle an incoming action request packet asynchronously and send a response."""

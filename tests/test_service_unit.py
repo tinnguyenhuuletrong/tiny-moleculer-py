@@ -9,9 +9,9 @@ import types
 
 # Import BaseService and action from the correct path
 from moleculer_py.data import ServiceInfo, Registry, NodeInfo, ActionInfo, ClientInfo
-from moleculer_py.service import BaseService, action
+from moleculer_py.service import BaseService, action, event
 from moleculer_py.broker import Broker
-from moleculer_py.packets import PacketRequest, DataType, PacketResponse
+from moleculer_py.packets import PacketRequest, DataType, PacketResponse, PacketEvent
 
 
 async def dummy(target_node_id: str | None = None):
@@ -353,3 +353,74 @@ async def test_broker_call_multiple_concurrent(monkeypatch):
     # Each result should match the corresponding payload
     for i, result in enumerate(results):
         assert result["msg"] == payloads[i]
+
+
+@pytest.mark.asyncio
+async def test_broker_handle_incoming_event(monkeypatch):
+    broker = Broker("")
+    broker.transit.send_info = dummy
+    called = {}
+    errors = {}
+
+    class MyService(BaseService):
+        @action()
+        async def dummy_action(self, ctx):
+            return "ok"
+
+        @staticmethod
+        def reset():
+            called.clear()
+            errors.clear()
+
+        @event("test.event")
+        async def handle_event(self, data):
+            called["event"] = data
+
+        @event("test.error")
+        async def handle_error(self, data):
+            errors["error"] = True
+            raise Exception("handler error")
+
+    service = MyService(broker, name="svc")
+    MyService.reset()
+
+    # Test normal event
+    event_data = {"foo": "bar"}
+    packet = PacketEvent(
+        ver="4",
+        sender="remote",
+        id="evt1",
+        event="test.event",
+        data=json.dumps(event_data),
+        dataType=DataType.JSON,
+    )
+    broker._handle_incoming_event(packet)
+    await asyncio.sleep(0.05)  # Let the event handler run
+    assert called["event"] == event_data
+
+    # Test error isolation: one handler throws, others still run
+    packet2 = PacketEvent(
+        ver="4",
+        sender="remote",
+        id="evt2",
+        event="test.error",
+        data=json.dumps({"fail": True}),
+        dataType=DataType.JSON,
+    )
+    broker._handle_incoming_event(packet2)
+    await asyncio.sleep(0.05)
+    assert errors["error"] is True
+
+    # Test event with no data
+    packet3 = PacketEvent(
+        ver="4",
+        sender="remote",
+        id="evt3",
+        event="test.event",
+        data=None,
+        dataType=DataType.UNDEFINED,
+    )
+    broker._handle_incoming_event(packet3)
+    await asyncio.sleep(0.05)
+    # Should call with None
+    assert called["event"] is None
