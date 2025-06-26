@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Dict, Any
 import aioconsole
 import asyncio
@@ -63,7 +64,7 @@ class OpenCVService(BaseService):
 
 async def main():
     broker = Broker(
-        node_id="python-opencv-node",
+        node_id=f"python-opencv-node-{os.getpid()}",
         redis_url="redis://localhost:6379/15",
         strategy=RoundRobinStrategy(),
     )
@@ -73,8 +74,8 @@ async def main():
     logger.info("Broker is running. Press Ctrl+C to stop.")
     try:
         await read_input_async(broker)
-    except Exception as e:
-        logger.error(f"Exception: {e}")
+    except:
+        pass
     logger.info("Stopping broker...")
     await broker.stop()
     logger.info("Broker stopped.")
