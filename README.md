@@ -12,7 +12,7 @@ A lightweight, Moleculer-compatible service broker for Python. This project prov
 - **Heartbeating:** Nodes periodically send heartbeat packets to signal their liveness.
 - **Interoperability:** Designed to be compatible with the Moleculer protocol (version "4").
 - **Service Registry:** Maintains a registry of local and remote services/actions.
-- **Remote Action Calling:** Supports calling actions on remote nodes (via `Broker.call`).
+- **Remote Action Calling & Load Balancing:** Supports calling actions on remote nodes (via `Broker.call`). Remote action calls now use a pluggable load balancing strategy (default: round-robin/random among online nodes).
 - **Interactive CLI Example:** Example includes an async REPL for interacting with the broker.
 - **Events:** Event listening and handler registration are implemented via the `@event` decorator. Services can react to events broadcast from other nodes (including JS Moleculer nodes). Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced features are still in progress.
 
@@ -20,7 +20,7 @@ A lightweight, Moleculer-compatible service broker for Python. This project prov
 
 - **Action Parameter Validation:** The `ActionInfo.params` validator is not yet implemented.
 - **Events:** Event emission and listening are planned but not fully implemented yet (`Broker.emit` is a stub).
-- **Advanced Features:** No built-in load balancing, circuit breaking, retries, fallback, or service mixins/middlewares.
+- **Advanced Features:** No circuit breaking, retries, fallback, or service mixins/middlewares. Basic load balancing is now supported (see below).
 
 ## Getting Started
 
@@ -222,8 +222,29 @@ Robust remote action calling and other advanced features are planned but not yet
 ## Limitations & Non-Goals
 
 - Only Redis transport is supported (no NATS, MQTT, AMQP, etc.).
-- No built-in load balancing, circuit breaking, retries, or fallback mechanisms.
+- No circuit breaking, retries, or fallback mechanisms (basic load balancing only).
 - No support for service mixins or middlewares.
 - No advanced caching or API gateway integration.
 - Metrics, tracing, and logging adapters are not included (basic logging only).
 - Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced event features (e.g., groups, broadcast options) are not yet implemented.
+
+### Load Balancing
+
+Remote action calls (e.g., `Broker.call`) now use a pluggable load balancing strategy to select among available online nodes that provide the requested action. By default, the `RoundRobinStrategy` (which randomly selects an online node) is used. You can provide your own strategy by passing it to the `Broker` constructor:
+
+```python
+from moleculer_py.broker import Broker
+from moleculer_py.loadbalance import RoundRobinStrategy
+
+broker = Broker(
+    node_id="python-node-1",
+    redis_url="redis://localhost:6379/15",
+    strategy=RoundRobinStrategy(),  # Optional: customize load balancing
+)
+```
+
+To implement your own strategy, subclass `LoadBalanceStrategy` and implement the `select_node` method.
+
+#### Node Offline Detection & Removal
+
+Nodes that do not send heartbeats within the configured timeout are first marked as offline, and then removed from the registry after two offline cycles. This helps keep the node registry clean and up-to-date.

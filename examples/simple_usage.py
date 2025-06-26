@@ -5,6 +5,7 @@ import asyncio
 import logging
 from moleculer_py import Broker, BaseService, action, event
 from helper.log_helper import setup_global_logging
+from moleculer_py.loadbalance import RoundRobinStrategy
 
 setup_global_logging(level=logging.INFO)
 logger = logging.getLogger("app")
@@ -30,7 +31,11 @@ class GreeterService(BaseService):
 
 async def main():
     # Create a broker instance with a unique node ID
-    broker = Broker(node_id="python-node-1", redis_url="redis://localhost:6379/15")
+    broker = Broker(
+        node_id="python-node-1",
+        redis_url="redis://localhost:6379/15",
+        strategy=RoundRobinStrategy(),
+    )
 
     # Start the broker
     logger.info("Starting broker...")

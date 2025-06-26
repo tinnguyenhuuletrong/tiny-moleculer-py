@@ -24,6 +24,7 @@ from .data import NodeInfo, Registry, ServiceInfo, ActionInfo, ClientInfo
 from .redis_transport import RedisTransport
 from .transit import Transit
 from .service import BaseService
+from .loadbalance import LoadBalanceStrategy, RoundRobinStrategy
 
 logger = logging.getLogger("broker")
 
@@ -38,12 +39,13 @@ class Broker:
     def __init__(
         self,
         node_id: str,
-        instance_id: str = str(uuid.uuid4()),
+        instance_id: str | None = None,
         redis_url: str = "redis://localhost:6379/0",
         cfg_node_ping_timeout_ms: int = 20000,
+        strategy: Optional[LoadBalanceStrategy] = None,
     ):
         self.node_id = node_id
-        self.instance_id = instance_id
+        self.instance_id = instance_id or str(uuid.uuid4())
         self.transport = RedisTransport(redis_url=redis_url, node_id=node_id)
         self.transit = Transit(self, self.transport)
         self.cfg_node_ping_timeout_ms = cfg_node_ping_timeout_ms
@@ -53,16 +55,31 @@ class Broker:
         self.cached_serializable_services = []
         self._registry: Registry = Registry({})
         self._pending_responses: Dict[str, asyncio.Future] = {}
+        self._strategy = strategy or RoundRobinStrategy()
+        self._node_offline_cycles: Dict[str, int] = {}  # Track offline cycles per node
+        self._status_check_task: Optional[asyncio.Task] = None
+        self._running = False
 
     async def start(self):
         """Start the broker: connect transit (which handles transport, subscribe, announce presence, heartbeat)."""
         await self.transit.connect()
         logger.info(f"Broker {self.node_id} started.")
+        self._running = True
+        # Start background status check loop
+        self._status_check_task = asyncio.create_task(self._status_check_loop())
 
     async def stop(self):
         """Stop the broker: send disconnect, stop heartbeat, disconnect transport."""
         await self.transit.disconnect()
         logger.info(f"Broker {self.node_id} stopped.")
+        self._running = False
+        # Cancel background status check loop
+        if self._status_check_task:
+            self._status_check_task.cancel()
+            try:
+                await self._status_check_task
+            except asyncio.CancelledError:
+                pass
 
     def register_service(
         self, name: str, service_ins: BaseService, service_def: Dict[str, Any]
@@ -89,7 +106,7 @@ class Broker:
         # 1. Find a remote node that has the action
         target_node_id = node_id
         if target_node_id is None:
-            found = self._registry.find_remote_action(action)
+            found = self._strategy.select_node(self._registry, action)
             if not found:
                 raise RuntimeError(f"No remote node found for action '{action}'")
             target_node_id, action_info = found
@@ -370,7 +387,8 @@ class Broker:
     def _refresh_node_online_status(self):
         now_ms = now()
         # Check all nodes for offline status
-        for node_id, node in self._registry.nodes.items():
+        to_remove = []
+        for node_id, node in list(self._registry.nodes.items()):
             # Ignore local node
             if node_id == self.node_id:
                 continue
@@ -382,6 +400,19 @@ class Broker:
                 logger.info(
                     f"Node '{node_id}' marked as offline (lastPing {node.lastPing}, now {now_ms})."
                 )
+                self._node_offline_cycles[node_id] = 1
+            elif not node.isOnline:
+                # Increment offline cycle count
+                self._node_offline_cycles[node_id] = (
+                    self._node_offline_cycles.get(node_id, 1) + 1
+                )
+                if self._node_offline_cycles[node_id] >= 2:
+                    logger.info(f"Node '{node_id}' removed after 2 offline cycles.")
+                    to_remove.append(node_id)
+        # Remove nodes that have been offline for 2 cycles
+        for node_id in to_remove:
+            self._registry.nodes.pop(node_id, None)
+            self._node_offline_cycles.pop(node_id, None)
 
     def _build_serialize_service(self):
         serializable_services = []
@@ -405,3 +436,9 @@ class Broker:
                 }
             )
         self.cached_serializable_services = serializable_services
+
+    async def _status_check_loop(self):
+        """Background loop to periodically refresh node online status and remove inactive nodes."""
+        while self._running:
+            self._refresh_node_online_status()
+            await asyncio.sleep(self.cfg_node_ping_timeout_ms / 1000)

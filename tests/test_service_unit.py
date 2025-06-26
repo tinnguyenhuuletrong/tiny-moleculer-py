@@ -1,7 +1,7 @@
 from typing import Any
 import pytest
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import json
 
 import sys
@@ -424,3 +424,51 @@ async def test_broker_handle_incoming_event(monkeypatch):
     await asyncio.sleep(0.05)
     # Should call with None
     assert called["event"] is None
+
+
+def make_node(node_id, lastPing, isOnline=True):
+    from moleculer_py.data import NodeInfo, ClientInfo, ServiceInfo
+
+    return NodeInfo(
+        nodeId=node_id,
+        ipList=["127.0.0.1"],
+        hostname="host",
+        instanceID="inst",
+        client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+        config={},
+        port=None,
+        seq=1,
+        metadata={},
+        services=[
+            ServiceInfo(
+                name="svc",
+                fullName="svc",
+                settings={},
+                metadata={},
+                actions={},
+                events={},
+            )
+        ],
+        lastPing=lastPing,
+        isOnline=isOnline,
+        isLocal=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_status_check_loop_marks_and_removes_offline_nodes(monkeypatch):
+    broker = Broker("local", cfg_node_ping_timeout_ms=10)
+    fake_now = 1000
+    monkeypatch.setattr("moleculer_py.utils.now", lambda: fake_now)
+    node_id = "remote1"
+    broker._registry.nodes[node_id] = make_node(node_id, lastPing=900, isOnline=True)
+
+    # First check: should mark node offline
+    broker._refresh_node_online_status()
+    assert node_id in broker._registry.nodes
+    assert not broker._registry.nodes[node_id].isOnline
+
+    # Second check: should remove node after another cycle
+    fake_now = 2000
+    broker._refresh_node_online_status()
+    assert node_id not in broker._registry.nodes
