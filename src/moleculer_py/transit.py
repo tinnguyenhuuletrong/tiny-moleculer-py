@@ -123,6 +123,12 @@ class Transit:
     async def send_response(self, target_node_id: str, packet: PacketResponse) -> None:
         return await self._send_packet(f"MOL.RES.{target_node_id}", packet)
 
+    async def send_event(self, target_node_id: str, packet: PacketEvent) -> None:
+        message_type = "MOL.EVENT"
+        if target_node_id != None:
+            message_type = f"MOL.EVENT.{target_node_id}"
+        await self._send_packet(message_type, packet)
+
     async def send_info(self, target_node_id: str | None = None):
         ip_list = self._get_local_ip_addresses()
         info = PacketInfo(

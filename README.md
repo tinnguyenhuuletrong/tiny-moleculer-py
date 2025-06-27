@@ -14,12 +14,11 @@ A lightweight, Moleculer-compatible service broker for Python. This project prov
 - **Service Registry:** Maintains a registry of local and remote services/actions.
 - **Remote Action Calling & Load Balancing:** Supports calling actions on remote nodes (via `Broker.call`). Remote action calls now use a pluggable load balancing strategy (default: round-robin/random among online nodes).
 - **Interactive CLI Example:** Example includes an async REPL for interacting with the broker.
-- **Events:** Event listening and handler registration are implemented via the `@event` decorator. Services can react to events broadcast from other nodes (including JS Moleculer nodes). Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced features are still in progress.
+- **Events:** Event emission and handler registration are implemented via the `@event` decorator. Services can react to events broadcast from other nodes (including JS Moleculer nodes). Event emission (`Broker.emit`) and event broadcasting (`Broker.broadcast`) are now implemented and interoperable with Moleculer.js. Advanced event features (e.g., groups, broadcast options) are still in progress.
 
 ### Work in Progress / Planned
 
 - **Action Parameter Validation:** The `ActionInfo.params` validator is not yet implemented.
-- **Events:** Event emission and listening are planned but not fully implemented yet (`Broker.emit` is a stub).
 - **Advanced Features:** No circuit breaking, retries, fallback, or service mixins/middlewares. Basic load balancing is now supported (see below).
 
 ## Project Status
@@ -38,7 +37,6 @@ Robust remote action calling and other advanced features are planned but not yet
 - No support for service mixins or middlewares.
 - No advanced caching or API gateway integration.
 - Metrics, tracing, and logging adapters are not included (basic logging only).
-- Event emission (`Broker.emit`) is interoperable with Moleculer.js, but advanced event features (e.g., groups, broadcast options) are not yet implemented.
 
 ## Getting Started
 
@@ -244,6 +242,25 @@ broker = Broker(
 ```
 
 To implement your own strategy, subclass `LoadBalanceStrategy` and implement the `select_node` method.
+
+### Event Emission and Broadcast
+
+You can now emit events to remote nodes using the following methods:
+
+- `await broker.emit(event, data)`: Emits an event to a single remote node interested in the event, using the broker's load balancing strategy (default: random among interested nodes).
+- `await broker.broadcast(event, data)`: Broadcasts an event to all remote nodes interested in the event. Errors in sending to one node do not affect others.
+
+The event node selection logic is pluggable via the load balancing strategy. To customize which node receives an emitted event, implement the `select_event_node` method in your strategy class.
+
+Example:
+
+```python
+# Emit an event to one interested remote node
+await broker.emit("my.event", {"foo": "bar"})
+
+# Broadcast an event to all interested remote nodes
+await broker.broadcast("my.event", {"baz": 123})
+```
 
 ### Node Offline Detection & Removal
 

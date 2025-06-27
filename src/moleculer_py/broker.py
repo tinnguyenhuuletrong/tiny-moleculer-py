@@ -2,6 +2,7 @@ import asyncio
 import logging
 import uuid
 import json
+import random
 
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
@@ -172,12 +173,77 @@ class Broker:
         self,
         event: str,
         data: Any,
-        groups: Optional[list] = None,
-        broadcast: bool = True,
     ):
-        """Emit an event to the network (send EVENT packet)."""
-        # TODO: Implement event emit logic
-        pass
+        """Emit an event to remote node interested in"""
+        # 1. Use strategy to select a remote node interested in this event
+        target_node_id = self._strategy.select_event_node(self._registry, event)
+        if not target_node_id:
+            logger.warning(f"No remote node found for event '{event}'")
+            return
+        # 2. Prepare data
+        if isinstance(data, (dict, list, str, int, float, bool, type(None))):
+            data_value = data
+            data_type = DataType.JSON
+        else:
+            data_value = data
+            data_type = DataType.BUFFER
+        # 3. Create PacketEvent
+        packet = PacketEvent(
+            ver="4",
+            sender=self.node_id,
+            id=str(uuid.uuid4()),
+            event=event,
+            data=data_value,
+            dataType=data_type,
+        )
+        # 4. Send the event
+        await self.transit.send_event(target_node_id, packet)
+
+    async def broadcast(
+        self,
+        event: str,
+        data: Any,
+    ):
+        """Emit an event to all remote nodes interested in"""
+        # 1. Find all remote nodes interested in this event
+        target_node_ids = []
+        for node_id, node in self._registry.nodes.items():
+            if not node.isOnline or node_id == self.node_id:
+                continue
+            for service in node.services:
+                if event in service.events:
+                    target_node_ids.append(node_id)
+                    break
+        if not target_node_ids:
+            logger.warning(f"No remote nodes found for event '{event}'")
+            return
+        # 2. Prepare data
+        if isinstance(data, (dict, list, str, int, float, bool, type(None))):
+            data_value = data
+            data_type = DataType.JSON
+        else:
+            data_value = data
+            data_type = DataType.BUFFER
+        # 3. Send event to all target nodes as async tasks
+        for target_node_id in target_node_ids:
+            packet = PacketEvent(
+                ver="4",
+                sender=self.node_id,
+                id=str(uuid.uuid4()),
+                event=event,
+                data=data_value,
+                dataType=data_type,
+            )
+
+            async def send_event_task(node_id=target_node_id, pkt=packet):
+                try:
+                    await self.transit.send_event(node_id, pkt)
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to send event '{event}' to node '{node_id}': {e}"
+                    )
+
+            asyncio.create_task(send_event_task())
 
     def get_registry(self):
         self._refresh_node_online_status()

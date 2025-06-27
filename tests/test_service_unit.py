@@ -472,3 +472,181 @@ async def test_status_check_loop_marks_and_removes_offline_nodes(monkeypatch):
     fake_now = 2000
     broker._refresh_node_online_status()
     assert node_id not in broker._registry.nodes
+
+
+@pytest.mark.asyncio
+async def test_broker_emit(monkeypatch):
+    broker = Broker("local")
+    broker.transit.send_info = dummy
+    sent_events = []
+
+    # Patch send_event to capture calls
+    async def fake_send_event(node_id, packet):
+        sent_events.append((node_id, packet))
+
+    monkeypatch.setattr(broker.transit, "send_event", fake_send_event)
+
+    # Register a service with an event
+    class MyService(BaseService):
+        @event("my.event")
+        async def handle_event(self, data):
+            return data
+
+    MyService(broker, name="svc")
+
+    # Add two remote nodes, both interested in "my.event"
+    from moleculer_py.data import NodeInfo, ClientInfo, ServiceInfo
+
+    broker._registry = Registry(
+        nodes={
+            "remote1": NodeInfo(
+                nodeId="remote1",
+                ipList=["127.0.0.1"],
+                hostname="host1",
+                instanceID="inst1",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={},
+                        events={"my.event": {}},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            ),
+            "remote2": NodeInfo(
+                nodeId="remote2",
+                ipList=["127.0.0.1"],
+                hostname="host2",
+                instanceID="inst2",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={},
+                        events={"my.event": {}},
+                    )
+                ],
+                lastPing=124,
+                isOnline=True,
+                isLocal=False,
+            ),
+        }
+    )
+
+    # Test emit: should send to one of the remote nodes
+    sent_events.clear()
+    await broker.emit("my.event", {"foo": "bar"})
+    assert len(sent_events) == 1
+    node_id, packet = sent_events[0]
+    assert node_id in ("remote1", "remote2")
+    assert packet.event == "my.event"
+    assert packet.data == {"foo": "bar"}
+
+
+@pytest.mark.asyncio
+async def test_broker_broadcast(monkeypatch):
+    broker = Broker("local")
+    broker.transit.send_info = dummy
+    sent_events = []
+
+    # Patch send_event to capture calls and simulate error for remote2
+    async def fake_send_event(node_id, packet):
+        sent_events.append((node_id, packet))
+        if node_id == "remote2":
+            raise Exception("Simulated send failure")
+
+    monkeypatch.setattr(broker.transit, "send_event", fake_send_event)
+
+    # Register a service with an event
+    class MyService(BaseService):
+        @event("my.event")
+        async def handle_event(self, data):
+            return data
+
+    MyService(broker, name="svc")
+
+    # Add two remote nodes, both interested in "my.event"
+    from moleculer_py.data import NodeInfo, ClientInfo, ServiceInfo
+
+    broker._registry = Registry(
+        nodes={
+            "remote1": NodeInfo(
+                nodeId="remote1",
+                ipList=["127.0.0.1"],
+                hostname="host1",
+                instanceID="inst1",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={},
+                        events={"my.event": {}},
+                    )
+                ],
+                lastPing=123,
+                isOnline=True,
+                isLocal=False,
+            ),
+            "remote2": NodeInfo(
+                nodeId="remote2",
+                ipList=["127.0.0.1"],
+                hostname="host2",
+                instanceID="inst2",
+                client=ClientInfo(type="py", version="1.0", langVersion="3.10"),
+                config={},
+                port=None,
+                seq=1,
+                metadata={},
+                services=[
+                    ServiceInfo(
+                        name="svc",
+                        fullName="svc",
+                        settings={},
+                        metadata={},
+                        actions={},
+                        events={"my.event": {}},
+                    )
+                ],
+                lastPing=124,
+                isOnline=True,
+                isLocal=False,
+            ),
+        }
+    )
+
+    # Test broadcast: should send to both nodes, and error in one does not affect the other
+    sent_events.clear()
+    await broker.broadcast("my.event", {"baz": 123})
+    await asyncio.sleep(0.05)
+    # Both nodes should be attempted
+    sent_node_ids = {node_id for node_id, _ in sent_events}
+    assert sent_node_ids == {"remote1", "remote2"}
+    for node_id, packet in sent_events:
+        assert packet.event == "my.event"
+        assert packet.data == {"baz": 123}
+    # No exception should be raised by broadcast
+    # (errors are logged, not raised)
