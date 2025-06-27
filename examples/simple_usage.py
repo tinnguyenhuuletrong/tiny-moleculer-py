@@ -85,7 +85,7 @@ async def read_input_async(broker: Broker):
                                 "Usage: call <action_name> <params_json>"
                             )
                             continue
-                        action_name = parts[1]
+                        event_name = parts[1]
                         params = {}
                         if len(parts) == 3:
                             try:
@@ -93,19 +93,63 @@ async def read_input_async(broker: Broker):
                             except Exception as e:
                                 await aioconsole.aprint(f"Invalid JSON for params: {e}")
                                 continue
-                        res = await broker.call(action_name, params=params)
+                        res = await broker.call(event_name, params=params)
                         await aioconsole.aprint(
                             json.dumps(res, indent=2, separators=None)
                         )
                     except Exception as e:
                         await aioconsole.aprint(f"Error: {e}")
                     pass
+                case _ if cmd.startswith("emit"):
+                    # Parse: emit <event_name> <params_json>
+                    try:
+                        parts = cmd.split(" ", 2)
+                        if len(parts) < 2:
+                            await aioconsole.aprint(
+                                "Usage: emit <event_name> <params_json>"
+                            )
+                            continue
+                        event_name = parts[1]
+                        params = {}
+                        if len(parts) == 3:
+                            try:
+                                params = json.loads(parts[2])
+                            except Exception as e:
+                                await aioconsole.aprint(f"Invalid JSON for params: {e}")
+                                continue
+                        await broker.emit(event_name, data=params)
+                    except Exception as e:
+                        await aioconsole.aprint(f"Error: {e}")
+                    pass
+                case _ if cmd.startswith("broadcast"):
+                    # Parse: emit <event_name> <params_json>
+                    try:
+                        parts = cmd.split(" ", 2)
+                        if len(parts) < 2:
+                            await aioconsole.aprint(
+                                "Usage: broadcast <event_name> <params_json>"
+                            )
+                            continue
+                        event_name = parts[1]
+                        params = {}
+                        if len(parts) == 3:
+                            try:
+                                params = json.loads(parts[2])
+                            except Exception as e:
+                                await aioconsole.aprint(f"Invalid JSON for params: {e}")
+                                continue
+                        await broker.broadcast(event_name, data=params)
+                    except Exception as e:
+                        await aioconsole.aprint(f"Error: {e}")
+                    pass
                 case _:
                     help_msg = (
                         "Available commands:\n"
-                        "  nodes                - Show the current node registry as JSON\n"
-                        "  services             - List registered services\n"
-                        '  call <action> <params_json> - Call an action with params (e.g. call greeter-py.hello {"name": "Alice"})\n'
+                        "  nodes                            - Show the current node registry as JSON\n"
+                        "  services                         - List registered services\n"
+                        '  call <action> <params_json>      - Call an action with params (e.g. call greeter-py.hello {"name": "Alice"})\n'
+                        '  emit <event> <params_json>       - Emit an event with params (e.g. emit ev_something {"from": "some where"})\n'
+                        '  broadcast <event> <params_json>  - Broadcast an event with params (e.g. broadcast ev_something {"from": "universal"})\n'
                         "  exit                 - Exit the CLI\n"
                     )
                     await aioconsole.aprint(help_msg)

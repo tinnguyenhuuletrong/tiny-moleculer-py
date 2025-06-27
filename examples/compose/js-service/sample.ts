@@ -11,6 +11,11 @@ async function main() {
   // Define a service
   broker.createService({
     name: "math",
+    events: {
+      async ev_something(ctx) {
+        console.log("Recv ev_something from someone !", ctx.params);
+      },
+    },
     actions: {
       add(ctx) {
         return {
